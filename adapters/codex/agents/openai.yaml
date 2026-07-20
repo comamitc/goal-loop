@@ -1,0 +1,4 @@
+interface:
+  display_name: "Goal Loop"
+  short_description: "Durable cross-engine backlog execution loop"
+  default_prompt: "Invoke $goal-loop to take durable ownership of a backlog, milestone, or work list. Reach for Codex /goal only when that ownership must be durable and autonomous; use a normal prompt for bounded single tasks."

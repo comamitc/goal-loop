@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "goal-loop/ledger@1",
+  "title": "goal-loop run ledger",
+  "type": "object",
+  "required": [
+    "schema", "run_id", "created_at", "items", "recovery_remaining",
+    "consecutive_blocked", "reconciled", "stop"
+  ],
+  "properties": {
+    "schema": { "const": "goal-loop/ledger@1" },
+    "run_id": { "type": "string" },
+    "created_at": { "type": "string" },
+    "items": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["state", "history"],
+        "properties": {
+          "state": {
+            "enum": [
+              "pending", "in_progress", "implemented", "pr_opened", "ready",
+              "merged", "released", "deployed", "blocked", "abandoned"
+            ]
+          },
+          "blocked_theme": { "type": "string" },
+          "history": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["at", "from", "to", "engine"],
+              "properties": {
+                "at": { "type": "string" },
+                "from": { "type": "string" },
+                "to": { "type": "string" },
+                "engine": { "enum": ["claude", "codex"] },
+                "theme": { "type": "string" },
+                "evidence": { "type": "object" },
+                "note": { "type": "string" },
+                "recovery_charged": { "type": "object" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "recovery_remaining": {
+      "type": "object",
+      "additionalProperties": { "type": "integer" }
+    },
+    "consecutive_blocked": { "type": "integer", "minimum": 0 },
+    "reconciled": {
+      "type": ["object", "null"],
+      "properties": {
+        "at": { "type": "string" },
+        "seq": { "type": "integer" },
+        "base_sha": { "type": ["string", "null"] },
+        "truth": { "type": "object" },
+        "mismatches": { "type": "array" }
+      }
+    },
+    "stop": {
+      "type": ["object", "null"],
+      "properties": { "reason": { "type": "string" } }
+    }
+  }
+}

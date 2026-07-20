@@ -1,0 +1,21 @@
+{
+  "repo": {
+    "name": "acme/widgets",
+    "base_branch": "staging",
+    "source_of_truth": "github-issues",
+    "dirty": false,
+    "instructions_files": ["CLAUDE.md", "AGENTS.md"]
+  },
+  "selector": { "type": "label", "value": "milestone:v2" },
+  "objective": "Process the entire v2 backlog end to end and ship everything that is ready",
+  "snapshot_items": [
+    { "id": "issue-102", "title": "API pagination", "deps": ["issue-101"] },
+    { "id": "issue-101", "title": "Schema migration", "deps": [] },
+    { "id": "issue-103", "title": "Docs refresh", "deps": [] }
+  ],
+  "authority_grants": ["push_pr"],
+  "verification": { "commands": ["pnpm test"], "checks": ["ci/build", "ci/test"] },
+  "recovery": { "budgets": { "flaky-test": 2, "environment": 1, "default": 2 } },
+  "stops": { "max_consecutive_blocked": 2 },
+  "report": { "format": "markdown-summary" }
+}

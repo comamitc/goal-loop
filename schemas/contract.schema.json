@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "goal-loop/contract@1",
+  "title": "goal-loop run contract",
+  "type": "object",
+  "required": [
+    "schema", "version", "run_id", "adapter", "repo", "selector", "items",
+    "ordering", "max_active_items", "worktree_policy", "done_definition",
+    "authority", "concurrency", "recovery", "stops", "verification",
+    "report", "canonical_hash"
+  ],
+  "properties": {
+    "schema": { "const": "goal-loop/contract@1" },
+    "version": { "type": "string" },
+    "run_id": { "type": "string", "minLength": 1 },
+    "adapter": { "enum": ["claude", "codex"] },
+    "repo": {
+      "type": "object",
+      "required": ["name", "base_branch"],
+      "properties": {
+        "name": { "type": "string" },
+        "base_branch": { "type": "string" },
+        "source_of_truth": { "type": "string" },
+        "dirty": { "type": "boolean" },
+        "instructions_files": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "selector": {
+      "type": "object",
+      "required": ["type", "value"],
+      "properties": {
+        "type": { "enum": ["label", "milestone", "roadmap-slice", "work-list", "backlog"] },
+        "value": { "type": "string" }
+      }
+    },
+    "objective": { "type": "string" },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id"],
+        "properties": {
+          "id": { "type": "string" },
+          "title": { "type": "string" },
+          "deps": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "ordering": { "const": "dependency-aware-sequential" },
+    "max_active_items": { "const": 1 },
+    "worktree_policy": { "type": "string" },
+    "done_definition": { "type": "string" },
+    "authority": {
+      "type": "object",
+      "required": ["push_pr", "merge", "release", "deploy"],
+      "additionalProperties": false,
+      "properties": {
+        "push_pr": { "type": "boolean" },
+        "merge": { "type": "boolean" },
+        "release": { "type": "boolean" },
+        "deploy": { "type": "boolean" }
+      }
+    },
+    "concurrency": {
+      "type": "object",
+      "required": ["exclusive_lock"],
+      "properties": {
+        "exclusive_lock": { "const": true },
+        "single_engine_advance": { "type": "boolean" }
+      }
+    },
+    "recovery": {
+      "type": "object",
+      "required": ["budgets"],
+      "properties": {
+        "budgets": {
+          "type": "object",
+          "additionalProperties": { "type": "integer", "minimum": 0 }
+        }
+      }
+    },
+    "stops": {
+      "type": "object",
+      "required": ["max_consecutive_blocked"],
+      "properties": {
+        "max_consecutive_blocked": { "type": "integer", "minimum": 1 },
+        "on_recovery_exhausted": { "type": "string" },
+        "on_authority_needed": { "type": "string" }
+      }
+    },
+    "verification": {
+      "type": "object",
+      "properties": {
+        "commands": { "type": "array", "items": { "type": "string" } },
+        "checks": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "report": {
+      "type": "object",
+      "properties": { "format": { "type": "string" } }
+    },
+    "canonical_hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+  }
+}

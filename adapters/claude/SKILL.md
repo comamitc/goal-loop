@@ -4,18 +4,22 @@ description: >-
   Engine-neutral durable backlog loop. Use when the user asks to process,
   resume, or audit a durable issue backlog, milestone, roadmap slice, label
   selection, or explicit work list end to end — work expected to span
-  sessions or engines (Claude Code / Codex CLI). Triggers include "work
-  through the v2 milestone", "resume the goal-loop run", "process everything
-  labeled X", "audit the backlog run". Do NOT use for a single bounded task,
-  one-off bug fix, or ordinary PR review.
+  sessions or engines (Claude Code / Codex CLI). Every selected issue is
+  executed through the installed agent-pipeline skill (/pipeline). Triggers
+  include "work through the v2 milestone", "resume the goal-loop run",
+  "process everything labeled X", "audit the backlog run". Do NOT use for a
+  single bounded task, one-off bug fix, or ordinary PR review.
 ---
 
 # goal-loop
 
-Durable, cross-engine backlog execution. All durable state lives on disk
-under `${XDG_STATE_HOME:-~/.local/state}/goal-loop` and is owned by the
-bundled `state.py` — never edit state files directly, and never rely on chat
-history for run state.
+Durable, cross-engine backlog execution. goal-loop is the outer orchestrator
+(selection, contract, ledger, lock, recovery, authority, reconciliation,
+resume); the installed **agent-pipeline** skill is the mandatory inner
+executor for every item. All durable state lives on disk under
+`${XDG_STATE_HOME:-~/.local/state}/goal-loop` and is owned by the bundled
+`state.py` — never edit state files directly, and never rely on chat history
+for run state.
 
 Read `references/LOOP.md` in this skill directory FULLY before acting, then
 follow it exactly. The short version:
@@ -24,21 +28,37 @@ follow it exactly. The short version:
    state, delivery workflow, verification commands, checks, post-merge
    hooks, and explicit authority grants. Write a discovery JSON
    (shape: `references/discovery.example.json`).
-2. **Compile + init** the canonical contract with
+2. **Preflight the pipeline (fail closed)**: run
+   `python3 <skill-dir>/state.py pipeline-preflight --engine claude`, then
+   `node ~/.claude/skills/pipeline/scripts/pipeline.mjs doctor --json`.
+   If the pipeline skill is missing or doctor fails, do not start any item —
+   report the failure and stop. There is no non-pipeline fallback.
+3. **Compile + init** the canonical contract with
    `python3 <skill-dir>/state.py compile-contract --adapter claude ...`
    then `init`. For an existing run, skip to resume.
-3. **Execute**: acquire the exclusive lock as engine `claude`, reconcile
-   against live repo/remote truth before every item and every resume, work
-   one item at a time in dependency order inside a dedicated worktree, and
-   record every state change via `state.py transition`.
-4. **Verify directly**: run the contract's verification commands and check
+4. **Execute**: acquire the exclusive lock as engine `claude`, reconcile
+   against live repo/remote truth before every item and every resume, then
+   hand each item to the pipeline with `/pipeline <N>` — it owns planning
+   through `pipeline:ready-to-deploy` in its own worktree. One item at a
+   time. `state.py` refuses `in_progress` without preflight evidence
+   (exit 7) and `ready` without verified `pipeline:ready-to-deploy` stage
+   evidence. Record every state change via `state.py transition`.
+5. **Verify directly**: run the contract's verification commands and check
    PRs/checks/SHAs yourself. Never accept a subagent claim as evidence.
-5. **Respect gates**: push/PR, merge, release, deploy each require an
+6. **Respect gates**: push/PR, merge, release, deploy each require an
    explicit contract grant plus `--evidence`. A broad objective grants
-   nothing. If a gate blocks progress: stop, report, wait.
-6. **Stop conditions are terminal**: exhausted recovery budgets or repeated
+   nothing. Without the merge grant, stop at ready-to-deploy and report.
+7. **Merge (only with explicit merge authority)**: use only the pipeline's
+   merge surface `node ~/.claude/skills/pipeline/scripts/pipeline.mjs merge
+   <pr>` after ready-to-deploy; verify the merge SHA and checks directly;
+   transition `merged` with `{"merge": {"via": "pipeline-merge", "sha": ...}}`
+   evidence (this sets a merge barrier); fetch + fast-forward the local base
+   branch, run `/pipeline:cleanup` and post-merge hooks; reconcile with the
+   merged SHA in `merged_shas` to clear the barrier; only then start the
+   next item from the refreshed base.
+8. **Stop conditions are terminal**: exhausted recovery budgets or repeated
    blocks stop the run; report the stop instead of working around it.
-7. **Release the lock** whenever pausing or finishing, and emit the
+9. **Release the lock** whenever pausing or finishing, and emit the
    contract's report format with per-item evidence and the exact next step.
 
 If the lock is held: `state.py lock status --run <id>` shows the holder and

@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from helpers import FIXTURE, make_run, state, state_json, acquire
+from helpers import FIXTURE, PREFLIGHT_EV, make_run, state, state_json, acquire
 
 
 class TestGoldenParity(unittest.TestCase):
@@ -33,7 +33,8 @@ class TestCrossEngineResume(unittest.TestCase):
             # engine 1 starts the run and advances an item
             t1 = acquire(home, run_id, first)
             state_json(["transition", "--run", run_id, "--item", "issue-101",
-                        "--to", "in_progress", "--token", t1], home)
+                        "--to", "in_progress", "--token", t1,
+                        "--evidence", PREFLIGHT_EV], home)
             state_json(["lock", "release", "--run", run_id, "--token", t1],
                        home)
             # engine 2 resumes purely from disk: status, reconcile, advance
@@ -68,11 +69,13 @@ class TestCrossEngineResume(unittest.TestCase):
             t1 = acquire(home, run_id, "claude")
             proc = state(["transition", "--run", run_id, "--item",
                           "issue-101", "--to", "in_progress",
-                          "--token", "codex-guess"], home)
+                          "--token", "codex-guess",
+                          "--evidence", PREFLIGHT_EV], home)
             self.assertEqual(proc.returncode, 3)
             # legitimate holder still works
             proc = state(["transition", "--run", run_id, "--item",
-                          "issue-101", "--to", "in_progress", "--token", t1],
+                          "issue-101", "--to", "in_progress", "--token", t1,
+                          "--evidence", PREFLIGHT_EV],
                          home)
             self.assertEqual(proc.returncode, 0, proc.stderr)
 

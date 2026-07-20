@@ -7,7 +7,8 @@ call this helper so both sides share one contract, one ledger, one lock.
 
 State lives under ${GOAL_LOOP_STATE_HOME:-${XDG_STATE_HOME:-~/.local/state}/goal-loop}.
 
-Exit codes: 0 ok, 2 usage/validation, 3 lock, 4 authority gate, 5 stop/recovery, 6 conflict.
+Exit codes: 0 ok, 2 usage/validation, 3 lock, 4 authority gate, 5 stop/recovery,
+6 conflict, 7 pipeline mandate (agent-pipeline unavailable or bypassed).
 """
 
 import argparse
@@ -20,10 +21,40 @@ from datetime import datetime, timezone
 from hashlib import sha256
 from pathlib import Path
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
-CONTRACT_SCHEMA = "goal-loop/contract@1"
-LEDGER_SCHEMA = "goal-loop/ledger@1"
+CONTRACT_SCHEMA = "goal-loop/contract@2"
+LEDGER_SCHEMA = "goal-loop/ledger@2"
+
+# Execution is mandatory agent-pipeline: every selected item is owned by the
+# installed pipeline skill from planning through pipeline:ready-to-deploy.
+# Both engines are listed so the block is engine-neutral and canonical-hash
+# stable across adapters. Paths use "~" literally; pipeline-preflight resolves
+# them against the real prefix at run time.
+PIPELINE_HANDOFF_STAGE = "pipeline:ready-to-deploy"
+PIPELINE_ENGINES = {
+    "claude": {"invocation": "/pipeline",
+               "skill_dir": "~/.claude/skills/pipeline",
+               "entrypoint": "~/.claude/skills/pipeline/scripts/pipeline.mjs"},
+    "codex": {"invocation": "$pipeline",
+              "skill_dir": "~/.codex/skills/pipeline",
+              "entrypoint": "~/.codex/skills/pipeline/scripts/pipeline.mjs"},
+}
+
+
+def execution_block():
+    engines = {}
+    for eng, spec in PIPELINE_ENGINES.items():
+        engines[eng] = {
+            **spec,
+            "preflight": f"node {spec['entrypoint']} doctor --json",
+            "merge_surface": f"node {spec['entrypoint']} merge <pr>",
+        }
+    return {
+        "mode": "agent-pipeline",
+        "handoff_stage": PIPELINE_HANDOFF_STAGE,
+        "engines": engines,
+    }
 
 # Item state machine. Gate transitions additionally require explicit authority
 # in the contract plus direct evidence — an agent claim is never enough.
@@ -165,6 +196,11 @@ def compile_contract(discovery, adapter, run_id):
     unknown = [g for g in grants if g not in GATE_NAMES]
     if unknown:
         raise CliError(f"unknown authority grants: {unknown}", 2)
+    exec_override = discovery.get("execution") or {}
+    if exec_override.get("mode") not in (None, "agent-pipeline"):
+        raise CliError(
+            "execution.mode is fixed to 'agent-pipeline'; goal-loop refuses to "
+            "compile a contract that bypasses the pipeline", 2)
     items = topo_order(discovery["snapshot_items"])
     contract = {
         "schema": CONTRACT_SCHEMA,
@@ -177,6 +213,7 @@ def compile_contract(discovery, adapter, run_id):
         "items": items,
         "ordering": "dependency-aware-sequential",
         "max_active_items": 1,
+        "execution": execution_block(),
         "worktree_policy": discovery.get("worktree_policy", "per-item-worktree"),
         "done_definition": discovery.get(
             "done_definition", "verified terminal state per item; never chat claims"
@@ -268,6 +305,15 @@ def do_transition(run_id, item_id, to_state, token, theme=None, evidence=None, n
     if to_state not in TRANSITIONS.get(cur, set()):
         raise CliError(f"invalid transition {cur} -> {to_state} for '{item_id}'", 2)
 
+    pipeline_required = (contract.get("execution") or {}).get("mode") == "agent-pipeline"
+    barrier = ledger.get("merge_barrier")
+    if barrier and to_state == "in_progress":
+        raise CliError(
+            f"merge barrier active for item '{barrier['item']}' "
+            f"(merged sha {barrier['merged_sha']}): fetch and fast-forward the "
+            "base branch, run post-merge cleanup, then reconcile with the "
+            "merged sha in truth.merged_shas before starting the next item.", 6)
+
     gate = GATES.get(to_state)
     if gate:
         if not contract["authority"].get(gate, False):
@@ -279,6 +325,33 @@ def do_transition(run_id, item_id, to_state, token, theme=None, evidence=None, n
             raise CliError(
                 f"transition to '{to_state}' requires --evidence with directly "
                 "verified facts (PR/checks/SHA), not an agent claim", 2)
+
+    if pipeline_required:
+        if to_state == "in_progress":
+            pf = ((evidence or {}).get("pipeline") or {}).get("preflight")
+            if pf != "pass":
+                raise CliError(
+                    "agent-pipeline is mandatory: entering 'in_progress' requires "
+                    '--evidence with {"pipeline": {"preflight": "pass", ...}} from '
+                    "a real 'pipeline-preflight' + doctor run. If the installed "
+                    "pipeline skill or its preflight is unavailable, fail closed: "
+                    "do not start the item.", 7)
+        elif to_state == "ready":
+            stage = ((evidence or {}).get("pipeline") or {}).get("stage")
+            if stage != PIPELINE_HANDOFF_STAGE:
+                raise CliError(
+                    "agent-pipeline owns the item through "
+                    f"{PIPELINE_HANDOFF_STAGE}: 'ready' requires --evidence with "
+                    '{"pipeline": {"stage": "pipeline:ready-to-deploy"}} verified '
+                    "from the live issue labels.", 7)
+        elif to_state == "merged":
+            m = (evidence or {}).get("merge") or {}
+            if m.get("via") != "pipeline-merge" or not m.get("sha"):
+                raise CliError(
+                    "merges must go through the pipeline merge surface after "
+                    "ready-to-deploy: 'merged' requires --evidence with "
+                    '{"merge": {"via": "pipeline-merge", "sha": ..., '
+                    '"checks": ...}} verified directly.', 7)
 
     charged = None
     if cur == "blocked" and to_state == "in_progress":
@@ -304,6 +377,11 @@ def do_transition(run_id, item_id, to_state, token, theme=None, evidence=None, n
     elif to_state in ("implemented", "pr_opened", "ready", "merged", "released", "deployed"):
         ledger["consecutive_blocked"] = 0
 
+    if to_state == "merged" and pipeline_required:
+        ledger["merge_barrier"] = {"item": item_id,
+                                   "merged_sha": evidence["merge"]["sha"],
+                                   "set_at": now_iso()}
+
     item["state"] = to_state
     entry = {"at": now_iso(), "from": cur, "to": to_state, "engine": holder["engine"]}
     if theme:
@@ -317,9 +395,12 @@ def do_transition(run_id, item_id, to_state, token, theme=None, evidence=None, n
     item["history"].append(entry)
     atomic_write_json(rdir / "ledger.json", ledger)
     emit_event(rdir, "transition", {"item": item_id, **entry})
+    if to_state == "merged" and ledger.get("merge_barrier"):
+        emit_event(rdir, "merge_barrier_set", ledger["merge_barrier"])
     if ledger.get("stop"):
         emit_event(rdir, "stop", ledger["stop"])
     return {"item": item_id, "state": to_state, "recovery_charged": charged,
+            "merge_barrier": ledger.get("merge_barrier"),
             "stop": ledger.get("stop")}
 
 
@@ -345,6 +426,7 @@ def status_payload(run_id):
         "active": active,
         "recovery_remaining": ledger["recovery_remaining"],
         "consecutive_blocked": ledger.get("consecutive_blocked", 0),
+        "merge_barrier": ledger.get("merge_barrier"),
         "stop": ledger.get("stop"),
         "lock": lock_info,
         "last_reconcile": (ledger.get("reconciled") or {}).get("at"),
@@ -381,6 +463,7 @@ def cmd_init(args):
         "recovery_remaining": dict(contract["recovery"]["budgets"]),
         "consecutive_blocked": 0,
         "reconciled": None,
+        "merge_barrier": None,
         "stop": None,
     }
     atomic_write_json(rdir / "contract.json", contract)
@@ -494,12 +577,24 @@ def cmd_reconcile(args):
         "truth": truth,
         "mismatches": mismatches,
     }
+    barrier = ledger.get("merge_barrier")
+    barrier_cleared = False
+    if barrier:
+        # The next item may only start once live truth shows the merged sha
+        # reachable from a refreshed base branch.
+        if truth.get("base_sha") and barrier["merged_sha"] in truth.get("merged_shas", []):
+            ledger["merge_barrier"] = None
+            barrier_cleared = True
     atomic_write_json(rdir / "ledger.json", ledger)
     emit_event(rdir, "reconciled", {"seq": ledger["reconciled"]["seq"],
                                     "base_sha": truth.get("base_sha"),
                                     "mismatches": mismatches})
+    if barrier_cleared:
+        emit_event(rdir, "merge_barrier_cleared", barrier)
     print(json.dumps({"mismatches": mismatches,
-                      "seq": ledger["reconciled"]["seq"]}, sort_keys=True))
+                      "seq": ledger["reconciled"]["seq"],
+                      "merge_barrier": ledger.get("merge_barrier"),
+                      "merge_barrier_cleared": barrier_cleared}, sort_keys=True))
 
 
 def cmd_status(args):
@@ -517,6 +612,35 @@ def cmd_show(args):
     elif args.what == "decisions":
         for d in read_jsonl(rdir / "decisions.jsonl"):
             print(canonical_dumps(d))
+
+
+def cmd_pipeline_preflight(args):
+    """Deterministic fail-closed check that the engine's installed
+    agent-pipeline skill exists. Prints the doctor command the engine must
+    then run (and pass) before any item may enter in_progress."""
+    if args.prefix:
+        base = Path(args.prefix)
+    else:
+        env = os.environ.get("GOAL_LOOP_INSTALL_PREFIX")
+        base = Path(env) if env else Path.home()
+    skill_dir = base / f".{args.engine}" / "skills" / "pipeline"
+    entrypoint = skill_dir / "scripts" / "pipeline.mjs"
+    missing = [str(p) for p in (skill_dir / "SKILL.md", entrypoint)
+               if not p.is_file()]
+    if missing:
+        raise CliError(
+            f"agent-pipeline skill unavailable for engine '{args.engine}': "
+            f"missing {missing}. goal-loop fails closed — install the pipeline "
+            "skill; do not start or advance items without it.", 7)
+    print(json.dumps({
+        "ok": True,
+        "engine": args.engine,
+        "invocation": PIPELINE_ENGINES[args.engine]["invocation"],
+        "skill_dir": str(skill_dir),
+        "entrypoint": str(entrypoint),
+        "doctor_cmd": f"node {entrypoint} doctor --json",
+        "handoff_stage": PIPELINE_HANDOFF_STAGE,
+    }, sort_keys=True, indent=2))
 
 
 def cmd_runs(args):
@@ -588,6 +712,14 @@ def build_parser():
     c.add_argument("what", choices=["contract", "ledger", "events", "decisions"])
     c.add_argument("--run", required=True)
     c.set_defaults(fn=cmd_show)
+
+    c = sub.add_parser("pipeline-preflight",
+                       help="fail-closed check that the engine's agent-pipeline "
+                            "skill is installed; prints the doctor command")
+    c.add_argument("--engine", required=True, choices=["claude", "codex"])
+    c.add_argument("--prefix", help="base dir containing .claude/.codex "
+                   "(default: $GOAL_LOOP_INSTALL_PREFIX or $HOME)")
+    c.set_defaults(fn=cmd_pipeline_preflight)
 
     c = sub.add_parser("runs", help="list runs")
     c.set_defaults(fn=cmd_runs)

@@ -8,6 +8,7 @@ from helpers import ROOT
 CLAUDE_SKILL = ROOT / "adapters" / "claude" / "SKILL.md"
 CODEX_SKILL = ROOT / "adapters" / "codex" / "SKILL.md"
 CODEX_YAML = ROOT / "adapters" / "codex" / "agents" / "openai.yaml"
+LOOP = ROOT / "workflow" / "LOOP.md"
 
 
 def frontmatter(path):
@@ -65,6 +66,43 @@ class TestCodexSkill(unittest.TestCase):
         self.assertIn("$goal-loop", text)
         self.assertRegex(text, r"/goal\b")
         self.assertRegex(text, r"(?i)normal prompt")
+
+
+class TestPipelineMandateProjection(unittest.TestCase):
+    """Both projections must require the installed agent-pipeline skill,
+    with the engine-native invocation form."""
+
+    def test_claude_projection_requires_pipeline(self):
+        text = CLAUDE_SKILL.read_text()
+        self.assertIn("/pipeline", text)
+        self.assertNotIn("$pipeline", text)
+        self.assertIn("pipeline:ready-to-deploy", text)
+        self.assertIn("~/.claude/skills/pipeline/scripts/pipeline.mjs", text)
+        self.assertRegex(text, r"(?i)fail(s|ed)? closed")
+        self.assertRegex(text, r"(?i)no non-pipeline fallback")
+
+    def test_codex_projection_requires_pipeline(self):
+        text = CODEX_SKILL.read_text()
+        self.assertIn("$pipeline", text)
+        self.assertIn("pipeline:ready-to-deploy", text)
+        self.assertIn("~/.codex/skills/pipeline/scripts/pipeline.mjs", text)
+        self.assertRegex(text, r"(?i)fail(s|ed)? closed")
+        self.assertRegex(text, r"(?i)no non-pipeline fallback")
+
+    def test_canonical_workflow_encodes_both_invocations_and_merge_flow(self):
+        text = LOOP.read_text()
+        self.assertIn("/pipeline <N>", text)
+        self.assertIn("$pipeline <N>", text)
+        self.assertIn("pipeline:ready-to-deploy", text)
+        self.assertIn("merge barrier", text)
+        self.assertIn("fast-forward", text)
+        self.assertIn("merged_shas", text)
+
+    def test_merge_stays_gated_in_both_projections(self):
+        for path in (CLAUDE_SKILL, CODEX_SKILL):
+            text = path.read_text()
+            self.assertRegex(text, r"(?i)only with explicit merge authority")
+            self.assertRegex(text, r"(?i)stop at ready-to-deploy")
 
 
 class TestOpenClawIndependence(unittest.TestCase):

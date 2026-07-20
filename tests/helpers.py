@@ -9,6 +9,11 @@ STATE = ROOT / "state.py"
 INSTALL = ROOT / "install.py"
 FIXTURE = ROOT / "fixtures" / "discovery.json"
 
+# Canonical evidence payloads for the mandatory agent-pipeline envelope.
+PREFLIGHT_EV = '{"pipeline": {"preflight": "pass"}}'
+READY_EV = '{"pipeline": {"stage": "pipeline:ready-to-deploy"}, "checks": "green"}'
+MERGE_EV = '{"merge": {"via": "pipeline-merge", "sha": "def456", "checks": "green"}}'
+
 
 def run_cli(script, args, state_home=None, extra_env=None):
     env = dict(os.environ)

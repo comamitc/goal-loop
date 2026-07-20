@@ -4,16 +4,24 @@ Engine-neutral durable backlog loop for Claude Code CLI and Codex CLI.
 One canonical workflow and state contract; thin per-engine skill adapters.
 No OpenClaw dependency at runtime or install time.
 
+goal-loop is the outer durable orchestrator (selection, contract, ledger,
+lock, recovery, authority, reconciliation, resume). Since v0.2.0 the
+installed **agent-pipeline** skill is the mandatory inner executor: every
+selected issue is owned by the pipeline from planning through
+`pipeline:ready-to-deploy` (Claude: `/pipeline`, Codex: `$pipeline`). If
+the pipeline skill or its preflight is unavailable, the run fails closed.
+
 ## Layout
 
 - `state.py` — stdlib-only CLI owning all durable run state (contracts,
-  ledger, exclusive lock, append-only `events.jsonl`, decisions). State
-  lives under `${XDG_STATE_HOME:-~/.local/state}/goal-loop` (override with
+  ledger, exclusive lock, append-only `events.jsonl`, decisions, merge
+  barrier, pipeline preflight). State lives under
+  `${XDG_STATE_HOME:-~/.local/state}/goal-loop` (override with
   `GOAL_LOOP_STATE_HOME`).
 - `workflow/LOOP.md` — the canonical workflow both engines follow.
 - `adapters/claude/`, `adapters/codex/` — thin skill projections; the Codex
   one carries `agents/openai.yaml` per Codex skill conventions.
-- `schemas/` — JSON Schema for the contract and ledger.
+- `schemas/` — JSON Schema for the contract and ledger (`@2`).
 - `fixtures/discovery.json` — example discovery input (also installed as
   `references/discovery.example.json`).
 - `install.py` — idempotent installer/uninstaller with an ownership
@@ -39,8 +47,20 @@ files its manifest does not own.
 - Atomic writes (temp file + fsync + rename) and an append-only event log.
 - One exclusive lock per run; stale locks are inspectable and recoverable,
   live locks are never silently stolen.
+- **Mandatory agent-pipeline execution**: contracts compile with a fixed
+  `execution.mode = agent-pipeline` block (engine-neutral: `/pipeline` and
+  `$pipeline` invocations, deterministic `pipeline.mjs` entrypoints,
+  preflight and merge-surface commands). `state.py pipeline-preflight`
+  fails closed (exit 7) when the installed skill is missing; entering
+  `in_progress` requires preflight-pass evidence, and `ready` requires
+  verified `pipeline:ready-to-deploy` stage evidence.
 - Authority gates (push/PR, merge, release, deploy) require explicit
   contract grants plus direct evidence; broad objectives grant nothing.
+  Without the merge grant, items stop at ready-to-deploy.
+- **Serialized merge → refresh → next**: with the merge grant, merges go
+  only through the pipeline merge surface; a `merged` transition sets a
+  ledger merge barrier that refuses to start the next item (exit 6) until a
+  reconcile proves the merged SHA is reachable from a refreshed base.
 - Recovery budgets per blocker theme and terminal stop conditions.
 - Resume from disk + live repo truth; both engines compile byte-identical
   canonical contracts from the same discovery.

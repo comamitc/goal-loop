@@ -1,16 +1,16 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "goal-loop/contract@1",
+  "$id": "goal-loop/contract@2",
   "title": "goal-loop run contract",
   "type": "object",
   "required": [
     "schema", "version", "run_id", "adapter", "repo", "selector", "items",
-    "ordering", "max_active_items", "worktree_policy", "done_definition",
-    "authority", "concurrency", "recovery", "stops", "verification",
-    "report", "canonical_hash"
+    "ordering", "max_active_items", "execution", "worktree_policy",
+    "done_definition", "authority", "concurrency", "recovery", "stops",
+    "verification", "report", "canonical_hash"
   ],
   "properties": {
-    "schema": { "const": "goal-loop/contract@1" },
+    "schema": { "const": "goal-loop/contract@2" },
     "version": { "type": "string" },
     "run_id": { "type": "string", "minLength": 1 },
     "adapter": { "enum": ["claude", "codex"] },
@@ -48,6 +48,24 @@
     },
     "ordering": { "const": "dependency-aware-sequential" },
     "max_active_items": { "const": 1 },
+    "execution": {
+      "type": "object",
+      "required": ["mode", "handoff_stage", "engines"],
+      "additionalProperties": false,
+      "properties": {
+        "mode": { "const": "agent-pipeline" },
+        "handoff_stage": { "const": "pipeline:ready-to-deploy" },
+        "engines": {
+          "type": "object",
+          "required": ["claude", "codex"],
+          "additionalProperties": false,
+          "properties": {
+            "claude": { "$ref": "#/$defs/engineExecution" },
+            "codex": { "$ref": "#/$defs/engineExecution" }
+          }
+        }
+      }
+    },
     "worktree_policy": { "type": "string" },
     "done_definition": { "type": "string" },
     "authority": {
@@ -100,5 +118,19 @@
       "properties": { "format": { "type": "string" } }
     },
     "canonical_hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+  },
+  "$defs": {
+    "engineExecution": {
+      "type": "object",
+      "required": ["invocation", "skill_dir", "entrypoint", "preflight", "merge_surface"],
+      "additionalProperties": false,
+      "properties": {
+        "invocation": { "enum": ["/pipeline", "$pipeline"] },
+        "skill_dir": { "type": "string" },
+        "entrypoint": { "type": "string" },
+        "preflight": { "type": "string" },
+        "merge_surface": { "type": "string" }
+      }
+    }
   }
 }

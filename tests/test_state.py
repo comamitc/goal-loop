@@ -4,7 +4,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from helpers import FIXTURE, make_run, state, state_json, acquire
+from helpers import (FIXTURE, PREFLIGHT_EV, READY_EV, make_run, state,
+                     state_json, acquire)
 
 
 class StateBase(unittest.TestCase):
@@ -22,15 +23,20 @@ class StateBase(unittest.TestCase):
             args += [f"--{k}", v]
         return state(args, self.home)
 
+    def start(self, item):
+        """Enter in_progress with the mandatory pipeline preflight evidence."""
+        return self.transition(item, "in_progress", evidence=PREFLIGHT_EV)
+
     def run_dir(self):
         return self.home / "runs" / self.run_id
 
 
 class TestTransitions(StateBase):
     def test_valid_chain(self):
-        for to in ("in_progress", "implemented"):
-            proc = self.transition("issue-101", to)
-            self.assertEqual(proc.returncode, 0, proc.stderr)
+        proc = self.start("issue-101")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        proc = self.transition("issue-101", "implemented")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
         ledger = json.loads((self.run_dir() / "ledger.json").read_text())
         self.assertEqual(ledger["items"]["issue-101"]["state"], "implemented")
         self.assertEqual(len(ledger["items"]["issue-101"]["history"]), 2)
@@ -47,7 +53,7 @@ class TestTransitions(StateBase):
         self.assertEqual(proc.returncode, 2)
 
     def test_blocked_requires_theme(self):
-        self.transition("issue-101", "in_progress")
+        self.start("issue-101")
         proc = self.transition("issue-101", "blocked")
         self.assertEqual(proc.returncode, 2)
         self.assertIn("--theme", proc.stderr)
@@ -60,13 +66,13 @@ class TestTransitions(StateBase):
 
 class TestAtomicAndEvents(StateBase):
     def test_no_temp_files_left_and_valid_json(self):
-        self.transition("issue-101", "in_progress")
+        self.start("issue-101")
         leftovers = list(self.run_dir().glob("*.tmp"))
         self.assertEqual(leftovers, [])
         json.loads((self.run_dir() / "ledger.json").read_text())
 
     def test_events_append_only_with_sequence(self):
-        self.transition("issue-101", "in_progress")
+        self.start("issue-101")
         self.transition("issue-101", "blocked", theme="flaky-test")
         lines = (self.run_dir() / "events.jsonl").read_text().splitlines()
         events = [json.loads(l) for l in lines]
@@ -86,15 +92,16 @@ class TestAuthority(StateBase):
     """Fixture grants only push_pr; broad objective must not widen it."""
 
     def to_ready(self, item="issue-103"):
-        self.transition(item, "in_progress")
+        self.start(item)
         self.transition(item, "implemented")
         proc = self.transition(item, "pr_opened",
                                evidence='{"pr": 7, "head_sha": "abc"}')
         self.assertEqual(proc.returncode, 0, proc.stderr)
-        self.transition(item, "ready", evidence='{"checks": "green"}')
+        proc = self.transition(item, "ready", evidence=READY_EV)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
 
     def test_gate_requires_evidence(self):
-        self.transition("issue-103", "in_progress")
+        self.start("issue-103")
         self.transition("issue-103", "implemented")
         proc = self.transition("issue-103", "pr_opened")
         self.assertEqual(proc.returncode, 2)
@@ -118,16 +125,16 @@ class TestAuthority(StateBase):
 class TestRecovery(StateBase):
     def test_exhaustion_stops_run_and_blocks_continuation(self):
         # environment budget is 1 in the fixture
-        self.transition("issue-101", "in_progress")
+        self.start("issue-101")
         self.transition("issue-101", "blocked", theme="environment")
-        proc = self.transition("issue-101", "in_progress")  # charges 1 -> 0
+        proc = self.start("issue-101")  # charges 1 -> 0
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.transition("issue-101", "blocked", theme="environment")
-        proc = self.transition("issue-101", "in_progress")  # exhausted
+        proc = self.start("issue-101")  # exhausted
         self.assertEqual(proc.returncode, 5)
         self.assertIn("exhausted", proc.stderr)
         # run is terminally stopped: nothing may advance, even other items
-        proc = self.transition("issue-103", "in_progress")
+        proc = self.start("issue-103")
         self.assertEqual(proc.returncode, 5)
         self.assertIn("stopped", proc.stderr)
         status = state_json(["status", "--run", self.run_id], self.home)
@@ -135,11 +142,11 @@ class TestRecovery(StateBase):
 
     def test_max_consecutive_blocked_stops(self):
         # fixture: max_consecutive_blocked = 2
-        self.transition("issue-101", "in_progress")
+        self.start("issue-101")
         self.transition("issue-101", "blocked", theme="flaky-test")
-        self.transition("issue-101", "in_progress")
+        self.start("issue-101")
         self.transition("issue-101", "blocked", theme="flaky-test")
-        self.transition("issue-101", "in_progress")
+        self.start("issue-101")
         self.transition("issue-101", "blocked", theme="flaky-test")
         status = state_json(["status", "--run", self.run_id], self.home)
         self.assertEqual(status["stop"]["reason"], "max_consecutive_blocked")
@@ -147,7 +154,7 @@ class TestRecovery(StateBase):
 
 class TestReconcile(StateBase):
     def test_reconcile_records_truth_and_mismatches(self):
-        self.transition("issue-101", "in_progress")
+        self.start("issue-101")
         truth = self.home / "truth.json"
         truth.write_text(json.dumps({
             "base_sha": "abc123",

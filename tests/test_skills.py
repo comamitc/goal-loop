@@ -138,16 +138,40 @@ class TestNativeGoalBootstrap(unittest.TestCase):
             self.assertRegex(path.read_text(), pattern, f"{path}")
 
     def test_no_markdown_link_for_goal_commands(self):
-        markdown_pattern = re.compile(
+        markdown_label_pattern = re.compile(
             r"\[[^\]]*(?:/goal-loop|\$goal-loop|/goal)[^\]]*\]\(")
+        markdown_dest_pattern = re.compile(
+            r"\[[^\]]*\]\([^)]*(?:/goal-loop|\$goal-loop|/goal)[^)]*\)")
         html_pattern = re.compile(
             r"(?is)<a\b[^>]*(?:href=[\"'][^\"']*"
             r"(?:/goal-loop|\$goal-loop|/goal)[^\"']*[\"']"
             r"|>[^<]*(?:/goal-loop|\$goal-loop|/goal\b)[^<]*</a>)")
         for path in (CLAUDE_SKILL, CODEX_SKILL, self.README, LOOP):
             text = path.read_text()
-            self.assertNotRegex(text, markdown_pattern, f"{path}")
+            self.assertNotRegex(text, markdown_label_pattern, f"{path}")
+            self.assertNotRegex(text, markdown_dest_pattern, f"{path}")
             self.assertNotRegex(text, html_pattern, f"{path}")
+
+    def test_markdown_link_patterns_catch_generic_label_command_links(self):
+        # Regression fixture: a generic label with a goal-command destination
+        # (e.g. `[start here](/goal-loop)`) must still be rejected even
+        # though the label itself contains no goal command text.
+        markdown_dest_pattern = re.compile(
+            r"\[[^\]]*\]\([^)]*(?:/goal-loop|\$goal-loop|/goal)[^)]*\)")
+        failing_fixtures = [
+            "[start here](/goal-loop)",
+            "[continue]($goal-loop)",
+            "[kick off native goal](/goal)",
+        ]
+        for fixture in failing_fixtures:
+            self.assertRegex(fixture, markdown_dest_pattern, fixture)
+
+        passing_fixtures = [
+            "[start here](/other-command)",
+            "plain text mentioning /goal-loop with no link",
+        ]
+        for fixture in passing_fixtures:
+            self.assertNotRegex(fixture, markdown_dest_pattern, fixture)
 
     def test_no_recursive_invocation_claim(self):
         pattern = re.compile(

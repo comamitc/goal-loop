@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from helpers import INSTALL, run_cli
+from helpers import INSTALL, ROOT, run_cli
 
 MANIFEST = ".goal-loop-manifest.json"
 
@@ -34,6 +34,18 @@ class TestInstall(unittest.TestCase):
         self.assertFalse((self.target("claude") / "agents").exists())
         proc = self.inst("verify")
         self.assertEqual(proc.returncode, 0, proc.stderr)
+        # Installed projections are byte-identical copies of the source
+        # docs -- no separate installer-authored native-/goal prose exists.
+        self.assertEqual(
+            (self.target("claude") / "SKILL.md").read_bytes(),
+            (ROOT / "adapters" / "claude" / "SKILL.md").read_bytes())
+        self.assertEqual(
+            (self.target("codex") / "SKILL.md").read_bytes(),
+            (ROOT / "adapters" / "codex" / "SKILL.md").read_bytes())
+        for engine in ("claude", "codex"):
+            self.assertEqual(
+                (self.target(engine) / "references" / "LOOP.md").read_bytes(),
+                (ROOT / "workflow" / "LOOP.md").read_bytes())
 
     def test_idempotent_reinstall(self):
         self.inst("install")

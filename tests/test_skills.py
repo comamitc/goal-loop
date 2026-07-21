@@ -9,6 +9,7 @@ CLAUDE_SKILL = ROOT / "adapters" / "claude" / "SKILL.md"
 CODEX_SKILL = ROOT / "adapters" / "codex" / "SKILL.md"
 CODEX_YAML = ROOT / "adapters" / "codex" / "agents" / "openai.yaml"
 LOOP = ROOT / "workflow" / "LOOP.md"
+README = ROOT / "README.md"
 
 
 def frontmatter(path):
@@ -103,6 +104,80 @@ class TestPipelineMandateProjection(unittest.TestCase):
             text = path.read_text()
             self.assertRegex(text, r"(?i)only with explicit merge authority")
             self.assertRegex(text, r"(?i)stop at ready-to-deploy")
+
+
+def normalize(text):
+    """Collapse markdown line-wrap whitespace so phrase regexes don't have
+    to guess where a paragraph happens to wrap."""
+    return re.sub(r"\s+", " ", text)
+
+
+class TestNativeGoalBootstrap(unittest.TestCase):
+    """Both projections + LOOP.md + README document the same engine-native
+    /goal bootstrap sequence, host-ownership boundary, and coordination
+    boundary, without claiming goal-loop performs the invocation itself."""
+
+    NO_LINK = re.compile(r"\[[^\]]*[/$]goal[^\]]*\]\(")
+    PROHIBITED_CLAIM = re.compile(
+        r"(?i)(goal-loop|this skill|the skill)\s+(itself\s+)?"
+        r"(invokes|calls|triggers|recursively invokes)\s+[^.]*"
+        r"(/goal\b|\$goal-loop)")
+
+    def test_claude_bootstrap_sequence(self):
+        text = normalize(CLAUDE_SKILL.read_text())
+        self.assertRegex(
+            text, r"start native `?/goal`?,? then invoke `?/goal-loop`?")
+        self.assertIsNone(self.NO_LINK.search(text))
+
+    def test_codex_bootstrap_sequence(self):
+        text = normalize(CODEX_SKILL.read_text())
+        self.assertRegex(
+            text, r"start native `?/goal`?,? then invoke `?\$goal-loop`?")
+        self.assertIsNone(self.NO_LINK.search(text))
+
+    def test_loop_and_readme_encode_both_bootstrap_sequences(self):
+        for path in (LOOP, README):
+            text = normalize(path.read_text())
+            self.assertRegex(
+                text,
+                r"start native `?/goal`?,? then invoke `?/goal-loop`?")
+            self.assertRegex(
+                text,
+                r"start native `?/goal`?,? then invoke `?\$goal-loop`?")
+            self.assertIsNone(self.NO_LINK.search(path.read_text()))
+
+    def test_no_prohibited_recursive_invocation_claim(self):
+        for path in (CLAUDE_SKILL, CODEX_SKILL, LOOP, README):
+            text = normalize(path.read_text())
+            self.assertIsNone(
+                self.PROHIBITED_CLAIM.search(text),
+                f"prohibited recursive-invocation claim found in {path}")
+            # The permitted operator-directed phrasing must still be present
+            # -- proves the prohibition regex isn't just failing to match.
+            self.assertRegex(text, r"(?i)then invoke")
+
+    def test_host_owns_native_goal_status_and_completion(self):
+        for path in (CLAUDE_SKILL, CODEX_SKILL, LOOP, README):
+            text = normalize(path.read_text())
+            self.assertRegex(
+                text,
+                r"(?i)owned by the host/session and (are|is) not detected, "
+                r"verified, or controlled by this standalone skill")
+
+    def test_loop_states_coordination_boundary(self):
+        for path in (LOOP, README):
+            text = normalize(path.read_text())
+            self.assertRegex(
+                text, r"(?i)only after goal-loop's own done definition")
+            self.assertRegex(text, r"(?i)final reconciliation pass")
+
+    def test_bounded_single_task_stays_outside_both(self):
+        for path in (CLAUDE_SKILL, CODEX_SKILL, LOOP, README):
+            text = normalize(path.read_text())
+            self.assertRegex(
+                text,
+                r"(?i)normal prompt (—|-) not native goal mode, "
+                r"not goal-loop")
 
 
 class TestOpenClawIndependence(unittest.TestCase):

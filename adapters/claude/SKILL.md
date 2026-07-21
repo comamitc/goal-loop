@@ -13,6 +13,17 @@ description: >-
 
 # goal-loop
 
+For durable autonomous ownership of a backlog: start native `/goal`, then
+invoke `/goal-loop`. For a bounded single task, stay with a normal prompt —
+not native Goal mode, not goal-loop.
+
+Native `/goal` is an operator-owned prerequisite for autonomous goal-loop
+use, not a capability this skill detects, verifies, or controls. Native
+goal status and completion are owned by the host/session and are not
+detected, verified, or controlled by this standalone skill. Complete
+native `/goal` only after goal-loop's own done definition is met and a
+final reconciliation pass has run.
+
 Durable, cross-engine backlog execution. goal-loop is the outer orchestrator
 (selection, contract, ledger, lock, recovery, authority, reconciliation,
 resume); the installed **agent-pipeline** skill is the mandatory inner

@@ -16,7 +16,28 @@ never plans, implements, reviews, or opens PRs itself.
 Use it when asked to process, resume, or audit a durable work backlog: a
 milestone, a roadmap slice, a label selection, or an explicit work list —
 anything expected to outlive one chat session. Do NOT use it for a single
-bounded task; do that directly.
+bounded task, do that directly with a normal prompt — not native Goal mode,
+not goal-loop.
+
+## Native `/goal` bootstrap
+
+Both engines expose a built-in `/goal` primitive that is the operator-owned
+prerequisite for autonomous goal-loop use — it is not a capability this
+skill detects, verifies, or controls:
+
+- Claude Code: start native `/goal`, then invoke `/goal-loop`.
+- Codex CLI: start native `/goal`, then invoke `$goal-loop`.
+
+These are plain-text instructions for the operator to type, not clickable
+command links, anchors, or invocations goal-loop performs recursively.
+Native goal status and completion are owned by the host/session and are
+not detected, verified, or controlled by this standalone skill; no
+contract, ledger, schema, or state-machine gate in goal-loop accepts
+caller-supplied native-goal evidence or labels it as verified or enforced.
+Complete native `/goal` only after goal-loop's own done definition is met
+and a final reconciliation pass has run — goal-loop's durable done
+definition and final reconciliation are the only completion conditions it
+can assert.
 
 ## Phase 1 — Discover
 

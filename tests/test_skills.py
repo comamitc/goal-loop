@@ -105,6 +105,72 @@ class TestPipelineMandateProjection(unittest.TestCase):
             self.assertRegex(text, r"(?i)stop at ready-to-deploy")
 
 
+class TestNativeGoalBootstrap(unittest.TestCase):
+    """Native /goal is an operator-owned prerequisite the skill neither
+    detects, verifies, nor controls; goal-loop never claims to invoke it."""
+
+    README = ROOT / "README.md"
+
+    def test_claude_projection_documents_native_goal_bootstrap(self):
+        text = CLAUDE_SKILL.read_text()
+        self.assertRegex(text, r"(?is)/goal(?!-loop)\b.*?/goal-loop")
+
+    def test_codex_projection_documents_native_goal_bootstrap(self):
+        text = CODEX_SKILL.read_text()
+        self.assertRegex(text, r"(?is)/goal(?!-loop)\b.*?\$goal-loop")
+
+    def test_no_markdown_link_for_goal_commands(self):
+        pattern = re.compile(
+            r"\[[^\]]*(?:/goal-loop|\$goal-loop|/goal)[^\]]*\]\(")
+        for path in (CLAUDE_SKILL, CODEX_SKILL, self.README, LOOP):
+            self.assertNotRegex(path.read_text(), pattern, f"{path}")
+
+    def test_no_recursive_invocation_claim(self):
+        pattern = re.compile(
+            r"(?i)(goal-loop|this skill|the skill)\s+(itself\s+)?"
+            r"(invokes?|calls?|triggers?|recursively (invokes?|calls?))\s+"
+            r"(the\s+)?(native\s+)?(/goal\b|/goal-loop|\$goal-loop)")
+        for path in (CLAUDE_SKILL, CODEX_SKILL, LOOP, self.README):
+            self.assertNotRegex(path.read_text(), pattern, f"{path}")
+
+    def test_native_goal_ownership_language(self):
+        pattern = re.compile(
+            r"(?i)(own(ed)? by.{0,20}(host|session)"
+            r"|(host|session).{0,80}own"
+            r"|not.{0,30}(detect|verif|control))")
+        for path in (CLAUDE_SKILL, CODEX_SKILL, self.README):
+            self.assertRegex(path.read_text(), pattern, f"{path}")
+
+    def test_bounded_single_task_stays_outside_native_goal(self):
+        pattern = re.compile(
+            r"(?i)(outside native goal mode|bounded single.task)")
+        for path in (CLAUDE_SKILL, CODEX_SKILL):
+            self.assertRegex(path.read_text(), pattern, f"{path}")
+
+    def test_no_caller_supplied_native_goal_evidence(self):
+        # Any mention of caller-supplied native-goal evidence must sit in a
+        # negated sentence (preceded by "no"/"not"/"never" within 10 chars).
+        mention = re.compile(
+            r"(?i)caller.supplied\s+native.goal\s+evidence")
+        negated = re.compile(
+            r"(?is)(no|not|never)\b.{0,80}caller.supplied\s+native.goal\s+"
+            r"evidence")
+        for path in (CLAUDE_SKILL, CODEX_SKILL, LOOP):
+            text = path.read_text()
+            if mention.search(text):
+                self.assertRegex(text, negated, f"{path}")
+        # LOOP.md must explicitly state the negative guarantee.
+        self.assertRegex(LOOP.read_text(), negated)
+
+    def test_loop_documents_completion_boundary(self):
+        text = LOOP.read_text()
+        self.assertRegex(text, r"(?i)done definition")
+        self.assertRegex(text, r"(?i)final reconciliation")
+        self.assertRegex(
+            text,
+            r"(?is)native.{0,10}/goal.{0,120}separate action")
+
+
 class TestOpenClawIndependence(unittest.TestCase):
     def test_no_openclaw_references_in_shipped_files(self):
         # Everything that gets installed or executed must be OpenClaw-free.

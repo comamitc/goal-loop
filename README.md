@@ -42,6 +42,17 @@ Use `--prefix DIR` or `GOAL_LOOP_INSTALL_PREFIX` to redirect (tests do).
 The installer refuses to touch unmanaged directories and never overwrites
 files its manifest does not own.
 
+## Native `/goal` bootstrap
+
+Autonomous goal-loop use is entered by starting native `/goal`, then
+invoking `/goal-loop` (Claude Code) or `$goal-loop` (Codex CLI). Bounded
+single-task work stays outside native Goal mode and outside goal-loop.
+Native `/goal` is an operator-owned prerequisite: goal-loop does not detect,
+verify, or control native goal status, and never invokes `/goal`,
+`/goal-loop`, or `$goal-loop` itself. Native goal status and completion are
+owned by the host/session; complete native `/goal` only after goal-loop
+reaches its durable done definition and final reconciliation.
+
 ## Guarantees
 
 - Atomic writes (temp file + fsync + rename) and an append-only event log.

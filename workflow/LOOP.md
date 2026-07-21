@@ -18,6 +18,35 @@ milestone, a roadmap slice, a label selection, or an explicit work list —
 anything expected to outlive one chat session. Do NOT use it for a single
 bounded task; do that directly.
 
+## Phase 0 — Native `/goal` bootstrap
+
+Both engines expose a native, built-in `/goal` primitive that lives outside
+this skill entirely. For durable autonomous goal-loop use, the operator
+starts that native session first:
+
+- Claude Code: start native `/goal`, then invoke `/goal-loop`.
+- Codex CLI: start native `/goal`, then invoke `$goal-loop`.
+
+This is an operator-owned prerequisite, not a capability this skill
+validates, detects, or controls. A standalone installed skill cannot call
+the host's composer command recursively, cannot inspect the parent
+session's native-goal state, and cannot intercept native-goal completion —
+there is no seam for any of that. Native `/goal` status and completion are
+owned by the host/session and are never independently verified or enforced
+by this skill: no contract, ledger, schema, or state-machine gate in
+`state.py` accepts caller-supplied native-goal evidence or labels it as
+verified or enforced.
+
+Bounded, single-task work stays outside native Goal mode and outside
+goal-loop — use a normal prompt directly.
+
+Coordination boundary: goal-loop's only assertable completion is its own
+durable done definition plus the final reconciliation pass described under
+Report, below. Native `/goal` completion is a separate, host/session-owned
+action the operator takes afterward, once goal-loop reports done; this
+skill never claims to have started, paused, resumed, cleared, or completed
+the native goal on the operator's behalf.
+
 ## Phase 1 — Discover
 
 Gather live truth before writing anything:

@@ -21,6 +21,25 @@ executor for every item. All durable state lives on disk under
 `state.py` — never edit state files directly, and never rely on chat history
 for run state.
 
+## Native `/goal` bootstrap
+
+Claude Code exposes a native, built-in `/goal` independent of this skill.
+For durable autonomous use: start native `/goal`, then invoke `/goal-loop`.
+Bounded single-task work stays outside native Goal mode and outside
+goal-loop — use a normal prompt instead.
+
+This is an operator-owned prerequisite, not something this skill validates,
+detects, or controls: a standalone installed skill cannot call the host's
+composer command recursively, inspect the parent session's native-goal
+state, or intercept native-goal completion. Native `/goal` status and
+completion are owned by the host/session and are never independently
+verified or enforced by goal-loop.
+
+goal-loop's only assertable completion is its own durable done definition
+plus the final reconciliation pass (see `references/LOOP.md`, Report). Once
+goal-loop reports done, the operator completes native `/goal` afterward —
+goal-loop never claims to invoke, pause, resume, clear, or complete it.
+
 Read `references/LOOP.md` in this skill directory FULLY before acting, then
 follow it exactly. The short version:
 

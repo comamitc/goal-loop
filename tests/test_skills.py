@@ -105,6 +105,72 @@ class TestPipelineMandateProjection(unittest.TestCase):
             self.assertRegex(text, r"(?i)stop at ready-to-deploy")
 
 
+CLAUDE_BOOTSTRAP_PHRASE = "start native `/goal`, then invoke `/goal-loop`"
+CODEX_BOOTSTRAP_PHRASE = "start native `/goal`, then invoke `$goal-loop`"
+README = ROOT / "README.md"
+
+# Files that must project the bootstrap language. openai.yaml uses plain
+# text (no backticks) in its default_prompt, so it is checked separately.
+BACKTICKED_BOOTSTRAP_FILES = (LOOP, CLAUDE_SKILL, CODEX_SKILL, README)
+# LOOP.md and README.md document both engines; each SKILL.md is
+# engine-specific and only needs its own engine's literal phrase.
+BOTH_ENGINE_FILES = (LOOP, README)
+
+
+class TestNativeGoalBootstrap(unittest.TestCase):
+    """LOOP.md, both SKILL.md files, README.md, and openai.yaml must align
+    on the literal native `/goal` bootstrap sequence, the operator-owned/
+    non-detection framing, and the completion boundary."""
+
+    def test_claude_literal_bootstrap_phrase(self):
+        for path in BOTH_ENGINE_FILES + (CLAUDE_SKILL,):
+            self.assertIn(CLAUDE_BOOTSTRAP_PHRASE, path.read_text(),
+                          f"missing Claude bootstrap phrase in {path}")
+
+    def test_codex_literal_bootstrap_phrase(self):
+        for path in BOTH_ENGINE_FILES + (CODEX_SKILL,):
+            self.assertIn(CODEX_BOOTSTRAP_PHRASE, path.read_text(),
+                          f"missing Codex bootstrap phrase in {path}")
+
+    def test_openai_yaml_ordered_bootstrap_phrasing(self):
+        text = CODEX_YAML.read_text()
+        self.assertRegex(
+            text,
+            r"start native /goal, then invoke \$goal-loop",
+            "openai.yaml default_prompt missing ordered /goal -> $goal-loop phrasing")
+
+    def test_no_markdown_link_around_goal_tokens(self):
+        token_pattern = re.compile(r"\[[^\]]*\]\([^)]*(?:/goal-loop|/goal|\$goal-loop)[^)]*\)")
+        for path in BACKTICKED_BOOTSTRAP_FILES + (CODEX_YAML,):
+            text = path.read_text()
+            self.assertEqual(token_pattern.findall(text), [],
+                             f"goal command token wrapped in markdown link in {path}")
+
+    def test_no_goal_loop_actor_recursive_invocation_claim(self):
+        actor_pattern = re.compile(
+            r"(?i)(goal-loop|the skill|this skill)\s+"
+            r"(invokes|calls|triggers|recurses into)\s+.*"
+            r"(/goal|\$goal-loop)")
+        for path in BACKTICKED_BOOTSTRAP_FILES + (CODEX_YAML,):
+            text = path.read_text()
+            self.assertEqual(actor_pattern.findall(text), [],
+                             f"goal-loop-as-actor recursive invocation claim in {path}")
+
+    def test_completion_boundary_language(self):
+        for path in BACKTICKED_BOOTSTRAP_FILES + (CODEX_YAML,):
+            text = path.read_text()
+            self.assertRegex(
+                text, r"(?i)durable done definition",
+                f"missing durable done definition language in {path}")
+            self.assertRegex(
+                text, r"(?i)final reconciliation",
+                f"missing final reconciliation language in {path}")
+            self.assertRegex(
+                text,
+                r"(?is)(never|not)\s+independently\s+verified\s+or\s+(enforced|controlled)",
+                f"missing non-verification disclaimer in {path}")
+
+
 class TestOpenClawIndependence(unittest.TestCase):
     def test_no_openclaw_references_in_shipped_files(self):
         # Everything that gets installed or executed must be OpenClaw-free.

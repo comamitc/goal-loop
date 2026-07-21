@@ -11,6 +11,24 @@ selected issue is owned by the pipeline from planning through
 `pipeline:ready-to-deploy` (Claude: `/pipeline`, Codex: `$pipeline`). If
 the pipeline skill or its preflight is unavailable, the run fails closed.
 
+## Native goal bootstrap (operator-owned prerequisite)
+
+Native `/goal` (Claude Code and Codex) is a host/session feature owned by
+the operator, not a capability this standalone skill validates or
+controls. For durable autonomous goal-loop use, the operator starts native
+`/goal` before invoking the loop:
+
+- Claude Code: start native `/goal`, then invoke `/goal-loop`.
+- Codex: start native `/goal`, then invoke `$goal-loop`.
+
+goal-loop does not invoke `/goal`, `/goal-loop`, or `$goal-loop` on your
+behalf — you start them. For a single bounded task, use a normal prompt —
+stay outside native Goal mode and outside goal-loop. Complete native
+`/goal` only after goal-loop's durable done definition and final
+reconciliation pass; native goal status and completion are owned by the
+host/session and cannot be independently verified or controlled by this
+skill.
+
 ## Layout
 
 - `state.py` — stdlib-only CLI owning all durable run state (contracts,

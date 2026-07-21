@@ -24,6 +24,16 @@ for run state.
 Read `references/LOOP.md` in this skill directory FULLY before acting, then
 follow it exactly. The short version:
 
+**Native goal bootstrap (operator-owned prerequisite).** For durable
+autonomous use: start native `/goal`, then invoke `/goal-loop`. goal-loop
+does not invoke `/goal` or `/goal-loop` on your behalf — you start them;
+it does not detect, attest to, or control native-goal state. For a single
+bounded task, use a normal prompt — stay outside native Goal mode and
+outside goal-loop. Complete native `/goal` only after goal-loop's durable
+done definition and final reconciliation pass; native goal status and
+completion are owned by the host/session and cannot be independently
+verified or controlled by this skill.
+
 1. **Discover** repo instructions, source of truth, base branch, dirty
    state, delivery workflow, verification commands, checks, post-merge
    hooks, and explicit authority grants. Write a discovery JSON

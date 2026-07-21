@@ -1,10 +1,11 @@
 """Ledger transitions, atomic writes, event append, authority, recovery."""
 import json
+import re
 import tempfile
 import unittest
 from pathlib import Path
 
-from helpers import (FIXTURE, PREFLIGHT_EV, READY_EV, make_run, state,
+from helpers import (FIXTURE, PREFLIGHT_EV, READY_EV, ROOT, make_run, state,
                      state_json, acquire)
 
 
@@ -169,6 +170,34 @@ class TestReconcile(StateBase):
                            "observed": "implemented"}])
         status = state_json(["status", "--run", self.run_id], self.home)
         self.assertIsNotNone(status["last_reconcile"])
+
+
+class TestNoNativeGoalEvidence(unittest.TestCase):
+    """Out of scope for issue #7: no contract/ledger/schema/state-machine gate
+    may accept or label caller-supplied native-goal evidence as verified."""
+
+    def _walk_property_names(self, node, found):
+        if isinstance(node, dict):
+            for key, value in node.items():
+                if key == "properties" and isinstance(value, dict):
+                    for prop_name in value:
+                        if re.search(r"native[_-]goal", prop_name, re.IGNORECASE):
+                            found.append(prop_name)
+                self._walk_property_names(value, found)
+        elif isinstance(node, list):
+            for item in node:
+                self._walk_property_names(item, found)
+
+    def test_schemas_have_no_native_goal_property(self):
+        for name in ("contract.schema.json", "ledger.schema.json"):
+            schema = json.loads((ROOT / "schemas" / name).read_text())
+            found = []
+            self._walk_property_names(schema, found)
+            self.assertEqual(found, [], f"native-goal property found in {name}")
+
+    def test_state_py_has_no_native_goal_key(self):
+        text = (ROOT / "state.py").read_text()
+        self.assertNotRegex(text, r"native[_-]goal")
 
 
 if __name__ == "__main__":

@@ -105,6 +105,54 @@ class TestPipelineMandateProjection(unittest.TestCase):
             self.assertRegex(text, r"(?i)stop at ready-to-deploy")
 
 
+class TestNativeGoalBootstrapMandate(unittest.TestCase):
+    """Every projection must document the native /goal + goal-loop
+    entrypoint, the self-attestation disclosure, the fail-closed exit-8
+    language, the native-completion limitation, and the no-false-claim
+    instruction."""
+
+    def test_claude_skill_documents_native_goal_mandate(self):
+        text = CLAUDE_SKILL.read_text()
+        self.assertIn("/goal", text)
+        self.assertIn("/goal-loop", text)
+        self.assertRegex(text, r"(?i)self-attest")
+        self.assertRegex(text, r"(?i)not (independently )?(detect|verif)")
+        self.assertIn("exit code 8", text)
+        self.assertRegex(text, r"(?i)cannot intercept")
+        self.assertRegex(text, r"(?i)never claim")
+
+    def test_codex_skill_documents_native_goal_mandate(self):
+        text = CODEX_SKILL.read_text()
+        self.assertIn("/goal", text)
+        self.assertIn("$goal-loop", text)
+        self.assertRegex(text, r"(?i)self-attest")
+        self.assertRegex(text, r"(?i)not (independently )?(detect|verif)")
+        self.assertIn("exit code 8", text)
+        self.assertRegex(text, r"(?i)cannot intercept")
+        self.assertRegex(text, r"(?i)never claim")
+
+    def test_openai_yaml_documents_native_goal_mandate(self):
+        text = CODEX_YAML.read_text()
+        self.assertIn("/goal", text)
+        self.assertIn("$goal-loop", text)
+        self.assertRegex(text, r"(?i)self-attest")
+        self.assertIn("exit code 8", text)
+
+    def test_loop_md_documents_native_goal_bootstrap_phase(self):
+        text = LOOP.read_text()
+        self.assertIn("Phase 0", text)
+        self.assertIn("/goal-loop", text)
+        self.assertIn("$goal-loop", text)
+        self.assertRegex(text, r"(?i)self-attestation")
+        self.assertRegex(text, r"(?i)cannot independently verify")
+        self.assertIn("exit code 8", text)
+        self.assertRegex(text, r"(?i)terminal/read-only boundary")
+        self.assertRegex(text, r"(?i)no code path back into the")
+        self.assertRegex(text, r"(?i)native-completion rule")
+        self.assertRegex(text, r"(?i)(cannot|no way to)\s+intercept or block")
+        self.assertRegex(text, r"(?i)never claim")
+
+
 class TestOpenClawIndependence(unittest.TestCase):
     def test_no_openclaw_references_in_shipped_files(self):
         # Everything that gets installed or executed must be OpenClaw-free.

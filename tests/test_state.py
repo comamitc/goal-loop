@@ -4,8 +4,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from helpers import (FIXTURE, PREFLIGHT_EV, READY_EV, make_run, state,
-                     state_json, acquire)
+from helpers import (FIXTURE, IN_PROGRESS_EV, PREFLIGHT_EV, READY_EV, make_run,
+                     state, state_json, acquire)
 
 
 class StateBase(unittest.TestCase):
@@ -24,8 +24,10 @@ class StateBase(unittest.TestCase):
         return state(args, self.home)
 
     def start(self, item):
-        """Enter in_progress with the mandatory pipeline preflight evidence."""
-        return self.transition(item, "in_progress", evidence=PREFLIGHT_EV)
+        """Enter in_progress with mandatory pipeline preflight evidence and a
+        fresh native-goal self-attestation."""
+        return self.transition(item, "in_progress",
+                               evidence=IN_PROGRESS_EV("claude", self.run_id))
 
     def run_dir(self):
         return self.home / "runs" / self.run_id

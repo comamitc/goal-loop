@@ -1,16 +1,16 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "goal-loop/contract@2",
+  "$id": "goal-loop/contract@3",
   "title": "goal-loop run contract",
   "type": "object",
   "required": [
     "schema", "version", "run_id", "adapter", "repo", "selector", "items",
-    "ordering", "max_active_items", "execution", "worktree_policy",
-    "done_definition", "authority", "concurrency", "recovery", "stops",
-    "verification", "report", "canonical_hash"
+    "ordering", "max_active_items", "execution", "native_goal",
+    "worktree_policy", "done_definition", "authority", "concurrency",
+    "recovery", "stops", "verification", "report", "canonical_hash"
   ],
   "properties": {
-    "schema": { "const": "goal-loop/contract@2" },
+    "schema": { "const": "goal-loop/contract@3" },
     "version": { "type": "string" },
     "run_id": { "type": "string", "minLength": 1 },
     "adapter": { "enum": ["claude", "codex"] },
@@ -62,6 +62,23 @@
           "properties": {
             "claude": { "$ref": "#/$defs/engineExecution" },
             "codex": { "$ref": "#/$defs/engineExecution" }
+          }
+        }
+      }
+    },
+    "native_goal": {
+      "type": "object",
+      "required": ["mode", "engines"],
+      "additionalProperties": false,
+      "properties": {
+        "mode": { "const": "native-goal-required" },
+        "engines": {
+          "type": "object",
+          "required": ["claude", "codex"],
+          "additionalProperties": false,
+          "properties": {
+            "claude": { "$ref": "#/$defs/nativeGoalClaude" },
+            "codex": { "$ref": "#/$defs/nativeGoalCodex" }
           }
         }
       }
@@ -130,6 +147,24 @@
         "entrypoint": { "type": "string" },
         "preflight": { "type": "string" },
         "merge_surface": { "type": "string" }
+      }
+    },
+    "nativeGoalClaude": {
+      "type": "object",
+      "required": ["bootstrap", "loop_invocation"],
+      "additionalProperties": false,
+      "properties": {
+        "bootstrap": { "const": "/goal" },
+        "loop_invocation": { "const": "/goal-loop" }
+      }
+    },
+    "nativeGoalCodex": {
+      "type": "object",
+      "required": ["bootstrap", "loop_invocation"],
+      "additionalProperties": false,
+      "properties": {
+        "bootstrap": { "const": "/goal" },
+        "loop_invocation": { "const": "$goal-loop" }
       }
     }
   }

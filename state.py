@@ -8,7 +8,8 @@ call this helper so both sides share one contract, one ledger, one lock.
 State lives under ${GOAL_LOOP_STATE_HOME:-${XDG_STATE_HOME:-~/.local/state}/goal-loop}.
 
 Exit codes: 0 ok, 2 usage/validation, 3 lock, 4 authority gate, 5 stop/recovery,
-6 conflict, 7 pipeline mandate (agent-pipeline unavailable or bypassed).
+6 conflict, 7 pipeline mandate (agent-pipeline unavailable or bypassed),
+8 native goal mandate (native /goal bootstrap missing, inactive, or stale).
 """
 
 import argparse
@@ -21,9 +22,9 @@ from datetime import datetime, timezone
 from hashlib import sha256
 from pathlib import Path
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
-CONTRACT_SCHEMA = "goal-loop/contract@2"
+CONTRACT_SCHEMA = "goal-loop/contract@3"
 LEDGER_SCHEMA = "goal-loop/ledger@2"
 
 # Execution is mandatory agent-pipeline: every selected item is owned by the
@@ -55,6 +56,69 @@ def execution_block():
         "handoff_stage": PIPELINE_HANDOFF_STAGE,
         "engines": engines,
     }
+
+
+# Native goal bootstrap is mandatory before any item may enter in_progress.
+# state.py cannot independently detect native Goal-mode session state (the
+# engine's own /goal primitive); it can only validate the SHAPE and
+# FRESHNESS of a caller-supplied self-attestation, exactly like it already
+# trusts pipeline evidence without re-running the doctor command itself.
+NATIVE_GOAL_ENGINES = {
+    "claude": {"bootstrap": "/goal", "loop_invocation": "/goal-loop"},
+    "codex": {"bootstrap": "/goal", "loop_invocation": "$goal-loop"},
+}
+NATIVE_GOAL_TTL_SECONDS = 300
+
+
+def native_goal_block():
+    return {
+        "mode": "native-goal-required",
+        "engines": {eng: dict(spec) for eng, spec in NATIVE_GOAL_ENGINES.items()},
+    }
+
+
+def validate_native_goal_evidence(evidence, run_id, engine):
+    """Validate a fresh, caller-supplied attestation that the engine's
+    native /goal primitive is active. This is self-attested, not detected:
+    state.py has no way to independently observe native Goal-mode session
+    state. Only status == 'active' (matching run_id and engine, checked_at
+    within NATIVE_GOAL_TTL_SECONDS) passes; everything else fails closed
+    with exit code 8. Returns the validated native_goal sub-dict."""
+    spec = NATIVE_GOAL_ENGINES.get(engine, {"bootstrap": "/goal",
+                                             "loop_invocation": "/goal-loop"})
+    corrective = (f"re-run the native bootstrap for engine '{engine}': "
+                  f"{spec['bootstrap']} then {spec['loop_invocation']}, then "
+                  "retry with fresh native-goal evidence.")
+
+    def fail(reason):
+        raise CliError(f"native goal bootstrap mandate: {reason}. {corrective}", 8)
+
+    ng = evidence.get("native_goal") if isinstance(evidence, dict) else None
+    if not isinstance(ng, dict):
+        fail("missing 'native_goal' evidence")
+    if ng.get("engine") != engine:
+        fail(f"native_goal.engine must equal the acting engine '{engine}' "
+             f"(got {ng.get('engine')!r})")
+    if ng.get("run_id") != run_id:
+        fail(f"native_goal.run_id must equal the run in play '{run_id}' "
+             f"(got {ng.get('run_id')!r})")
+    if ng.get("status") != "active":
+        fail(f"native_goal.status must be 'active' (got {ng.get('status')!r})")
+    checked_at = ng.get("checked_at")
+    if not isinstance(checked_at, str):
+        fail("native_goal.checked_at must be an ISO8601 string")
+    try:
+        checked_dt = datetime.fromisoformat(checked_at)
+    except ValueError:
+        fail(f"native_goal.checked_at is not a valid ISO8601 timestamp "
+             f"(got {checked_at!r})")
+    if checked_dt.tzinfo is None:
+        checked_dt = checked_dt.replace(tzinfo=timezone.utc)
+    age = abs((datetime.now(timezone.utc) - checked_dt).total_seconds())
+    if age > NATIVE_GOAL_TTL_SECONDS:
+        fail(f"native_goal.checked_at is stale ({age:.0f}s old, "
+             f"max {NATIVE_GOAL_TTL_SECONDS}s)")
+    return ng
 
 # Item state machine. Gate transitions additionally require explicit authority
 # in the contract plus direct evidence — an agent claim is never enough.
@@ -214,6 +278,7 @@ def compile_contract(discovery, adapter, run_id):
         "ordering": "dependency-aware-sequential",
         "max_active_items": 1,
         "execution": execution_block(),
+        "native_goal": native_goal_block(),
         "worktree_policy": discovery.get("worktree_policy", "per-item-worktree"),
         "done_definition": discovery.get(
             "done_definition", "verified terminal state per item; never chat claims"
@@ -353,6 +418,11 @@ def do_transition(run_id, item_id, to_state, token, theme=None, evidence=None, n
                     '{"merge": {"via": "pipeline-merge", "sha": ..., '
                     '"checks": ...}} verified directly.', 7)
 
+    native_goal_check = None
+    if to_state == "in_progress":
+        native_goal_check = validate_native_goal_evidence(
+            evidence, run_id, engine=holder["engine"])
+
     charged = None
     if cur == "blocked" and to_state == "in_progress":
         th = item.get("blocked_theme") or "default"
@@ -392,6 +462,9 @@ def do_transition(run_id, item_id, to_state, token, theme=None, evidence=None, n
         entry["note"] = note
     if charged:
         entry["recovery_charged"] = charged
+    if native_goal_check:
+        entry["native_goal_check"] = native_goal_check
+        ledger["last_native_goal_check"] = native_goal_check
     item["history"].append(entry)
     atomic_write_json(rdir / "ledger.json", ledger)
     emit_event(rdir, "transition", {"item": item_id, **entry})
@@ -428,6 +501,7 @@ def status_payload(run_id):
         "consecutive_blocked": ledger.get("consecutive_blocked", 0),
         "merge_barrier": ledger.get("merge_barrier"),
         "stop": ledger.get("stop"),
+        "last_native_goal_check": ledger.get("last_native_goal_check"),
         "lock": lock_info,
         "last_reconcile": (ledger.get("reconciled") or {}).get("at"),
         "events": len(events),
@@ -450,6 +524,9 @@ def cmd_init(args):
     if contract.get("schema") != CONTRACT_SCHEMA:
         raise CliError(f"contract schema must be {CONTRACT_SCHEMA}", 2)
     run_id = contract["run_id"]
+    native_goal_check = validate_native_goal_evidence(
+        json.loads(args.native_goal_evidence) if args.native_goal_evidence else None,
+        run_id, engine=args.engine)
     rdir = state_home() / "runs" / run_id
     if rdir.exists():
         raise CliError(f"run '{run_id}' already exists; resume it instead", 6)
@@ -465,6 +542,7 @@ def cmd_init(args):
         "reconciled": None,
         "merge_barrier": None,
         "stop": None,
+        "last_native_goal_check": native_goal_check,
     }
     atomic_write_json(rdir / "contract.json", contract)
     atomic_write_json(rdir / "ledger.json", ledger)
@@ -663,6 +741,11 @@ def build_parser():
 
     c = sub.add_parser("init", help="initialize a run from a compiled contract")
     c.add_argument("--contract", required=True)
+    c.add_argument("--engine", required=True, choices=["claude", "codex"])
+    c.add_argument("--native-goal-evidence",
+                   help="JSON native_goal self-attestation "
+                        '({"native_goal": {"engine": ..., "run_id": ..., '
+                        '"status": "active", "checked_at": ...}}); required')
     c.set_defaults(fn=cmd_init)
 
     c = sub.add_parser("lock", help="exclusive run lock")

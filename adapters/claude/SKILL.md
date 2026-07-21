@@ -24,6 +24,28 @@ for run state.
 Read `references/LOOP.md` in this skill directory FULLY before acting, then
 follow it exactly. The short version:
 
+0. **Native goal bootstrap (self-attested, not detected).** This skill's
+   autonomous entrypoint is `/goal` + `/goal-loop`. `state.py` cannot
+   independently verify native Goal-mode session state; it only validates
+   the shape and freshness of a caller-supplied self-attestation. Before
+   `state.py init`, and before every `in_progress` transition (including
+   resume from `blocked`), supply fresh evidence: `{"native_goal":
+   {"engine": "claude", "run_id": "<run-id>", "status": "active",
+   "checked_at": "<now, ISO8601>"}}`. Missing, stale (>300s old), mismatched
+   run_id/engine, or any status other than `"active"` (including `"paused"`,
+   `"cleared"`, `"unknown"`) fails closed with exit code 8: re-run `/goal`
+   then `/goal-loop`, then retry with fresh evidence. `status`, `show`,
+   `runs`, and `reconcile` need no native-goal evidence — including on a run
+   whose native `/goal` was since cleared or paused, or whose items are all
+   terminal. Editing the native `/goal` text mid-run has no code path back
+   into the durable contract or ledger; an actual objective change requires
+   a new `compile-contract` + `init` with a new `run_id`. Never declare the
+   native `/goal` complete before `done_definition` is met and a final
+   `reconcile` shows every item terminal — `state.py` cannot intercept the
+   engine's own native-completion action, this is procedural guidance only.
+   Never claim this skill recursively invoked `/goal`, `/goal-loop`, or
+   `$goal-loop` mid-run — it cannot, and claiming otherwise is exactly the
+   false attestation this mandate exists to prevent.
 1. **Discover** repo instructions, source of truth, base branch, dirty
    state, delivery workflow, verification commands, checks, post-merge
    hooks, and explicit authority grants. Write a discovery JSON

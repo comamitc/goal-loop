@@ -4,7 +4,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from helpers import FIXTURE, PREFLIGHT_EV, make_run, state, state_json, acquire
+from helpers import (FIXTURE, IN_PROGRESS_EV, PREFLIGHT_EV, make_run, state,
+                     state_json, acquire)
 
 
 class TestGoldenParity(unittest.TestCase):
@@ -20,6 +21,10 @@ class TestGoldenParity(unittest.TestCase):
                 out[adapter] = json.loads(path.read_text())
             a, b = out["claude"], out["codex"]
             self.assertEqual(a["canonical_hash"], b["canonical_hash"])
+            # native_goal is a new @3 field: confirm it's present and still
+            # engine-neutral (byte-identical) across adapters.
+            self.assertEqual(a["native_goal"]["mode"], "native-goal-required")
+            self.assertEqual(a["native_goal"], b["native_goal"])
             a.pop("adapter"), b.pop("adapter")
             self.assertEqual(a, b)
 
@@ -34,7 +39,7 @@ class TestCrossEngineResume(unittest.TestCase):
             t1 = acquire(home, run_id, first)
             state_json(["transition", "--run", run_id, "--item", "issue-101",
                         "--to", "in_progress", "--token", t1,
-                        "--evidence", PREFLIGHT_EV], home)
+                        "--evidence", IN_PROGRESS_EV(first, run_id)], home)
             state_json(["lock", "release", "--run", run_id, "--token", t1],
                        home)
             # engine 2 resumes purely from disk: status, reconcile, advance
@@ -48,13 +53,21 @@ class TestCrossEngineResume(unittest.TestCase):
             out = state_json(["reconcile", "--run", run_id, "--token", t2,
                               "--input", str(truth)], home)
             self.assertEqual(out["mismatches"], [])
+            # engine 2 blocks and then resumes in_progress with its OWN fresh
+            # native-goal evidence -- it never needs to match engine 1's.
+            state_json(["transition", "--run", run_id, "--item", "issue-101",
+                        "--to", "blocked", "--token", t2,
+                        "--theme", "environment"], home)
+            state_json(["transition", "--run", run_id, "--item", "issue-101",
+                        "--to", "in_progress", "--token", t2,
+                        "--evidence", IN_PROGRESS_EV(second, run_id)], home)
             state_json(["transition", "--run", run_id, "--item", "issue-101",
                         "--to", "implemented", "--token", t2], home)
             ledger = json.loads(
                 (home / "runs" / run_id / "ledger.json").read_text())
             engines = [h["engine"]
                        for h in ledger["items"]["issue-101"]["history"]]
-            self.assertEqual(engines, [first, second])
+            self.assertEqual(engines, [first, second, second, second])
 
     def test_claude_starts_codex_resumes(self):
         self.resume_roundtrip("claude", "codex")
@@ -75,7 +88,7 @@ class TestCrossEngineResume(unittest.TestCase):
             # legitimate holder still works
             proc = state(["transition", "--run", run_id, "--item",
                           "issue-101", "--to", "in_progress", "--token", t1,
-                          "--evidence", PREFLIGHT_EV],
+                          "--evidence", IN_PROGRESS_EV("claude", run_id)],
                          home)
             self.assertEqual(proc.returncode, 0, proc.stderr)
 

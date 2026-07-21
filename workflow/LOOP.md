@@ -18,6 +18,59 @@ milestone, a roadmap slice, a label selection, or an explicit work list —
 anything expected to outlive one chat session. Do NOT use it for a single
 bounded task; do that directly.
 
+## Phase 0 — Native goal bootstrap
+
+goal-loop's autonomous entrypoint is the engine's own native `/goal`
+primitive: Claude Code is `/goal` + `/goal-loop`; Codex CLI is `/goal` +
+`$goal-loop`. `state.py` **cannot independently verify native Goal-mode
+session state** — it has no way to observe whether the engine's own `/goal`
+is actually active. Instead it validates the SHAPE and FRESHNESS of a
+caller-supplied **self-attestation** (this is self-attested, not detected —
+exactly like `--evidence '{"pipeline": {"preflight": "pass"}}'` is trusted
+without state.py re-running the doctor command itself).
+
+Before `state.py init`, and before every transition to `in_progress`
+(including resume from `blocked`), the caller must supply fresh evidence:
+
+```json
+{"native_goal": {"engine": "claude"|"codex", "run_id": "<run in play>",
+                  "status": "active", "checked_at": "<ISO8601, now>"}}
+```
+
+Only `status: "active"` passes; `paused`, `cleared`, and `unknown` all fail
+closed. `run_id` and `engine` must match the run and acting engine exactly.
+`checked_at` must be within 5 minutes (300s) of the current time.
+
+**Failing to supply valid evidence fails closed with exit code 8** and a
+message giving the exact corrective invocation for that engine: re-run
+`/goal` then `/goal-loop` (Claude) or `/goal` then `$goal-loop` (Codex),
+then retry `init`/`transition` with fresh evidence.
+
+**Terminal/read-only boundary.** `status`, `show`, `runs`, and `reconcile`
+need NO native-goal evidence at all — including when run against a run
+whose native `/goal` was since cleared or paused, and including a run whose
+items are all in a terminal state. Only entry into `in_progress` is gated.
+
+**No code path back into the contract.** Editing the native `/goal` text
+mid-run has no effect on the durable contract or ledger — there is no
+mechanism by which it could. An actual objective change requires compiling
+a new contract (`compile-contract`) and a new `init` with a new `run_id`;
+the old run is untouched.
+
+**Native-completion rule (procedural only).** Never declare the native
+`/goal` complete before the ledger's `done_definition` is verifiably met
+AND a final `reconcile` pass shows every item in a terminal state. This is
+guidance for the engine, not an enforced gate: `state.py` has no way to
+intercept or block the engine's own native-completion action — it can only
+refuse to have recorded the work as done in the durable ledger.
+
+**Never claim a false recursive re-invocation.** Once execution for an
+item has begun, never claim (in chat, in a report, or in a decision record)
+that this skill recursively invoked `/goal`, `/goal-loop`, or `$goal-loop`
+mid-run. Those are the engine's own top-level entrypoints; a skill running
+inside a session cannot re-invoke them, and claiming otherwise is a false
+attestation of exactly the kind this mandate exists to prevent.
+
 ## Phase 1 — Discover
 
 Gather live truth before writing anything:
@@ -48,8 +101,13 @@ Compile and initialize:
 ```
 python3 state.py compile-contract --discovery discovery.json \
     --adapter <claude|codex> --run-id <run-id> --out contract.json
-python3 state.py init --contract contract.json
+python3 state.py init --contract contract.json --engine <claude|codex> \
+    --native-goal-evidence '{"native_goal": {"engine": "<claude|codex>", \
+"run_id": "<run-id>", "status": "active", "checked_at": "<now, ISO8601>"}}'
 ```
+
+`init` fails closed with exit code 8 if this evidence is missing, stale,
+mismatched, or not `status: "active"` — see Phase 0.
 
 The contract is canonical: run id, repo, selector snapshot, dependency-aware
 ordering, adapter, mandatory `execution` block (agent-pipeline mode, both
@@ -78,10 +136,15 @@ For every work session (start or resume):
    (concurrency is 1).
 4. **Preflight, then hand the item to agent-pipeline.** Re-run
    `state.py pipeline-preflight --engine <engine>` plus the printed doctor
-   command; record the item as `in_progress` with that evidence
-   (`--evidence '{"pipeline": {"preflight": "pass", "doctor": ...}}'`) —
-   `state.py` refuses `in_progress` without it (exit 7). Then invoke the
-   pipeline on the issue:
+   command; record the item as `in_progress` with that evidence AND a fresh
+   native-goal self-attestation in the same `--evidence` JSON
+   (`--evidence '{"pipeline": {"preflight": "pass", "doctor": ...},
+   "native_goal": {"engine": "<engine>", "run_id": "<run-id>",
+   "status": "active", "checked_at": "<now>"}}'`) — `state.py` refuses
+   `in_progress` without the pipeline evidence (exit 7) or without valid,
+   fresh native-goal evidence (exit 8; see Phase 0). This applies to every
+   entry into `in_progress`, including resume from `blocked`. Then invoke
+   the pipeline on the issue:
    - Claude Code: `/pipeline <N>` (deterministic entrypoint:
      `node ~/.claude/skills/pipeline/scripts/pipeline.mjs`)
    - Codex CLI: `$pipeline <N>` (deterministic entrypoint:

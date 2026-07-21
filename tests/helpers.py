@@ -2,6 +2,7 @@ import json
 import os
 import subprocess
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -37,7 +38,35 @@ def state_json(args, state_home, **kw):
     return json.loads(proc.stdout)
 
 
-def make_run(state_home, run_id="r1", adapter="claude", discovery=None):
+def native_goal_evidence(engine, run_id, status="active", stale=False,
+                         run_id_override=None, engine_override=None):
+    """Build a JSON string {"native_goal": {...}} matching the shape
+    state.py's validate_native_goal_evidence expects. A fresh, self-attested
+    claim that the engine's native /goal primitive is active — never
+    independently detected."""
+    at = datetime.now(timezone.utc)
+    if stale:
+        at -= timedelta(seconds=400)
+    return json.dumps({
+        "native_goal": {
+            "engine": engine_override if engine_override is not None else engine,
+            "run_id": run_id_override if run_id_override is not None else run_id,
+            "status": status,
+            "checked_at": at.isoformat(timespec="seconds"),
+        }
+    })
+
+
+def IN_PROGRESS_EV(engine, run_id, **kw):
+    """Combined --evidence for a transition to in_progress: both the
+    mandatory pipeline-preflight evidence and a fresh native-goal
+    self-attestation, since both are validated from the same --evidence
+    flag at that call site."""
+    ng = json.loads(native_goal_evidence(engine, run_id, **kw))
+    return json.dumps({"pipeline": {"preflight": "pass"}, **ng})
+
+
+def make_run(state_home, run_id="r1", adapter="claude", discovery=None, engine=None):
     """Compile the fixture discovery into a contract and init a run."""
     disc = Path(state_home) / "discovery.json"
     disc.write_text(json.dumps(discovery) if discovery else FIXTURE.read_text())
@@ -45,7 +74,11 @@ def make_run(state_home, run_id="r1", adapter="claude", discovery=None):
     state_json(["compile-contract", "--discovery", str(disc),
                 "--adapter", adapter, "--run-id", run_id,
                 "--out", str(contract_path)], state_home)
-    state_json(["init", "--contract", str(contract_path)], state_home)
+    init_engine = engine if engine else adapter
+    state_json(["init", "--contract", str(contract_path),
+                "--engine", init_engine,
+                "--native-goal-evidence",
+                native_goal_evidence(init_engine, run_id)], state_home)
     return run_id
 
 

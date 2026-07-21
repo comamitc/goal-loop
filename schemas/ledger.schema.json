@@ -71,6 +71,15 @@
     "stop": {
       "type": ["object", "null"],
       "properties": { "reason": { "type": "string" } }
+    },
+    "last_native_goal_check": {
+      "type": ["object", "null"],
+      "properties": {
+        "engine": { "enum": ["claude", "codex"] },
+        "run_id": { "type": "string" },
+        "status": { "type": "string" },
+        "checked_at": { "type": "string" }
+      }
     }
   }
 }

@@ -5,8 +5,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from helpers import (FIXTURE, MERGE_EV, PREFLIGHT_EV, READY_EV, STATE,
-                     make_run, run_cli, state, state_json, acquire)
+from helpers import (FIXTURE, IN_PROGRESS_EV, MERGE_EV, PREFLIGHT_EV, READY_EV,
+                     STATE, make_run, run_cli, state, state_json, acquire)
 
 
 class PipelineBase(unittest.TestCase):
@@ -80,14 +80,16 @@ class TestPipelineEvidenceMandate(PipelineBase):
 
     def test_blocked_reentry_also_requires_preflight(self):
         self.make()
-        self.transition("issue-101", "in_progress", evidence=PREFLIGHT_EV)
+        self.transition("issue-101", "in_progress",
+                        evidence=IN_PROGRESS_EV("claude", self.run_id))
         self.transition("issue-101", "blocked", theme="environment")
         proc = self.transition("issue-101", "in_progress")
         self.assertEqual(proc.returncode, 7)
 
     def test_ready_requires_ready_to_deploy_stage_evidence(self):
         self.make()
-        self.transition("issue-103", "in_progress", evidence=PREFLIGHT_EV)
+        self.transition("issue-103", "in_progress",
+                        evidence=IN_PROGRESS_EV("claude", self.run_id))
         self.transition("issue-103", "implemented")
         self.transition("issue-103", "pr_opened",
                         evidence='{"pr": 7, "head_sha": "abc"}')
@@ -110,7 +112,8 @@ class TestMergeSerialization(PipelineBase):
         self.make(discovery=disc)
 
     def to_ready(self, item):
-        self.transition(item, "in_progress", evidence=PREFLIGHT_EV)
+        self.transition(item, "in_progress",
+                        evidence=IN_PROGRESS_EV("claude", self.run_id))
         self.transition(item, "implemented")
         self.transition(item, "pr_opened", evidence='{"pr": 7, "head_sha": "abc"}')
         proc = self.transition(item, "ready", evidence=READY_EV)
@@ -160,7 +163,7 @@ class TestMergeSerialization(PipelineBase):
         self.assertIn("merge_barrier_set", events)
         self.assertIn("merge_barrier_cleared", events)
         proc = self.transition("issue-101", "in_progress",
-                               evidence=PREFLIGHT_EV)
+                               evidence=IN_PROGRESS_EV("claude", self.run_id))
         self.assertEqual(proc.returncode, 0, proc.stderr)
 
 

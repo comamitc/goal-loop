@@ -10,6 +10,9 @@ installed **agent-pipeline** skill is the mandatory inner executor: every
 selected issue is owned by the pipeline from planning through
 `pipeline:ready-to-deploy` (Claude: `/pipeline`, Codex: `$pipeline`). If
 the pipeline skill or its preflight is unavailable, the run fails closed.
+Since v0.3.0, entering `in_progress` also requires fresh native-goal
+bootstrap evidence (see Guarantees below); this is self-attested, not
+independently detected.
 
 ## Layout
 
@@ -61,6 +64,13 @@ files its manifest does not own.
   only through the pipeline merge surface; a `merged` transition sets a
   ledger merge barrier that refuses to start the next item (exit 6) until a
   reconcile proves the merged SHA is reachable from a refreshed base.
+- **Native goal bootstrap mandate**: entering `in_progress` (start or resume)
+  requires a fresh, self-attested claim that the engine's native `/goal`
+  primitive is active — `state.py` cannot independently detect native
+  Goal-mode session state, it only validates the shape and freshness of
+  this attestation (Claude: `/goal` + `/goal-loop`; Codex: `/goal` +
+  `$goal-loop`). Missing, stale, mismatched, or non-`active` evidence fails
+  closed with exit code 8.
 - Recovery budgets per blocker theme and terminal stop conditions.
 - Resume from disk + live repo truth; both engines compile byte-identical
   canonical contracts from the same discovery.

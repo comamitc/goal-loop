@@ -6,8 +6,18 @@ description: Engine-neutral durable backlog loop. Invoke with $goal-loop for dur
 # goal-loop
 
 Trigger this skill with `$goal-loop`. Use the Codex `/goal` primitive only
-when the run requires durable autonomous ownership; for bounded single
-tasks, stay with a normal prompt.
+when the run requires durable autonomous ownership: start native `/goal`
+first, then invoke `$goal-loop`. For bounded single tasks, stay with a
+normal prompt, outside native Goal mode and outside goal-loop.
+
+Native `/goal` is an operator-owned prerequisite: this skill does not
+detect, attest to, or control native Goal-mode state, and cannot
+recursively invoke `/goal` or `$goal-loop` on the operator's behalf. Native
+goal status and completion are owned by the host/session and cannot be
+independently verified or controlled by this skill; the only completion
+condition goal-loop can assert is its own durable done definition plus a
+final reconciliation pass — the operator completes native `/goal` only
+after that.
 
 Own a durable backlog end to end, sharing state with Claude Code. goal-loop
 is the outer orchestrator (selection, contract, ledger, lock, recovery,

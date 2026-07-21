@@ -1,4 +1,4 @@
 interface:
   display_name: "Goal Loop"
   short_description: "Durable cross-engine backlog execution loop"
-  default_prompt: "Invoke $goal-loop to take durable ownership of a backlog, milestone, or work list; every selected issue is executed through the installed agent-pipeline skill ($pipeline) from planning to pipeline:ready-to-deploy. Reach for Codex /goal only when that ownership must be durable and autonomous; use a normal prompt for bounded single tasks."
+  default_prompt: "For durable autonomous ownership of a backlog, milestone, or work list, start native /goal first, then invoke $goal-loop; every selected issue is executed through the installed agent-pipeline skill ($pipeline) from planning to pipeline:ready-to-deploy. Native /goal is an operator-owned prerequisite that this skill does not detect, attest to, or control. Use a normal prompt for bounded single tasks, outside native Goal mode and outside goal-loop."

@@ -105,6 +105,76 @@ class TestPipelineMandateProjection(unittest.TestCase):
             self.assertRegex(text, r"(?i)stop at ready-to-deploy")
 
 
+class TestNativeGoalBootstrap(unittest.TestCase):
+    """Native `/goal` is an operator-owned prerequisite the skill projects
+    but never detects, attests to, or controls."""
+
+    PROSE_FILES = (CLAUDE_SKILL, CODEX_SKILL, CODEX_YAML, LOOP,
+                    ROOT / "README.md")
+
+    def test_claude_bootstrap_orders_native_goal_then_goal_loop(self):
+        text = CLAUDE_SKILL.read_text()
+        self.assertRegex(text, r"(?s)/goal\b.*?/goal-loop")
+        self.assertTrue(re.search(r"/goal(?!-loop)", text),
+                         "native /goal must appear unqualified at least once")
+
+    def test_codex_bootstrap_orders_native_goal_then_dollar_goal_loop(self):
+        for path in (CODEX_SKILL, CODEX_YAML):
+            text = path.read_text()
+            self.assertRegex(text, r"(?s)/goal\b.*?\$goal-loop", str(path))
+
+    def test_no_markdown_link_wrapping_of_goal_tokens(self):
+        pattern = re.compile(
+            r"\[[^\]]*(?:/goal-loop|\$goal-loop|/goal)[^\]]*\]\([^)]*\)")
+        for path in self.PROSE_FILES:
+            matches = pattern.findall(path.read_text())
+            self.assertEqual(matches, [], f"markdown link wrapping in {path}")
+
+    def test_operator_owned_disclaimer_present(self):
+        for path in (CLAUDE_SKILL, CODEX_SKILL, LOOP, ROOT / "README.md"):
+            text = path.read_text()
+            self.assertRegex(text, r"(?i)operator-owned", str(path))
+            self.assertRegex(
+                text,
+                r"(?is)does\s+not\s+detect,?\s+attest\s+to,?\s+or\s+control",
+                str(path))
+
+    def test_loop_states_coordination_boundary(self):
+        text = LOOP.read_text()
+        self.assertRegex(
+            text, r"(?is)durable\s+done\s+definition.*final\s+reconciliation")
+        self.assertRegex(text, r"(?is)operator\s+completes\s+native\s+`/goal`")
+
+    def test_no_recursive_invocation_claims(self):
+        # Forbid claims that the skill itself performed a recursive
+        # invocation of native /goal, /goal-loop, or $goal-loop — as
+        # opposed to instructing the operator to invoke them.
+        forbidden = re.compile(
+            r"(?i)\b(this skill|goal-loop)\s+"
+            r"(invoke[sd]?|call(?:s|ed)?|trigger(?:s|ed)?)\s+"
+            r"(the\s+)?(native\s+)?(/goal\b|/goal-loop|\$goal-loop)")
+        proc = subprocess.run(
+            ["grep", "-rlE", "invoke|call|trigger",
+             "state.py", "install.py", "adapters", "workflow", "schemas",
+             "fixtures", "README.md"],
+            cwd=ROOT, capture_output=True, text=True)
+        offenders = []
+        for rel in proc.stdout.split():
+            text = (ROOT / rel).read_text()
+            if forbidden.search(text):
+                offenders.append(rel)
+        self.assertEqual(offenders, [],
+                          f"recursive-invocation claim found in: {offenders}")
+
+    def test_no_native_goal_state_added_to_runtime_surfaces(self):
+        proc = subprocess.run(
+            ["grep", "-rln", "native", "state.py", "schemas", "fixtures"],
+            cwd=ROOT, capture_output=True, text=True)
+        self.assertEqual(proc.stdout.strip(), "",
+                          f"unexpected native-goal reference in runtime "
+                          f"surface: {proc.stdout}")
+
+
 class TestOpenClawIndependence(unittest.TestCase):
     def test_no_openclaw_references_in_shipped_files(self):
         # Everything that gets installed or executed must be OpenClaw-free.

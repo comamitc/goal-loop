@@ -52,10 +52,15 @@ Steps:
    If the pipeline skill is missing or doctor fails, do not start any item —
    report and stop. There is no non-pipeline fallback.
 3. Compile the canonical contract:
-   `python3 <skill-dir>/state.py compile-contract --adapter codex ...`,
-   then `state.py init`. For an existing run, resume instead.
+   `python3 <skill-dir>/state.py compile-contract --adapter codex ...
+   --native-goal-evidence ...` (required whenever `--out` writes the
+   contract artifact), then `state.py init`. For an existing run, resume
+   instead.
 4. Acquire the lock as engine `codex`. If held and not verifiably stale,
-   the other engine owns the run — stop and report.
+   the other engine owns the run — stop and report. If the run has an item
+   already `in_progress` (a paused session resuming with no intervening
+   transition), `lock acquire` also requires fresh native-goal evidence via
+   `--native-goal-evidence` and fails closed (exit 8) without it.
 5. Reconcile ledger against live issues, branches, PRs, checks, and base
    SHA before every item and every resume.
 6. Work one item at a time in dependency order by handing it to the

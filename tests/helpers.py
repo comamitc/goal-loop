@@ -71,10 +71,12 @@ def make_run(state_home, run_id="r1", adapter="claude", discovery=None, engine=N
     disc = Path(state_home) / "discovery.json"
     disc.write_text(json.dumps(discovery) if discovery else FIXTURE.read_text())
     contract_path = Path(state_home) / "contract.json"
+    init_engine = engine if engine else adapter
     state_json(["compile-contract", "--discovery", str(disc),
                 "--adapter", adapter, "--run-id", run_id,
-                "--out", str(contract_path)], state_home)
-    init_engine = engine if engine else adapter
+                "--out", str(contract_path),
+                "--native-goal-evidence",
+                native_goal_evidence(adapter, run_id)], state_home)
     state_json(["init", "--contract", str(contract_path),
                 "--engine", init_engine,
                 "--native-goal-evidence",
@@ -82,7 +84,9 @@ def make_run(state_home, run_id="r1", adapter="claude", discovery=None, engine=N
     return run_id
 
 
-def acquire(state_home, run_id, engine, pid=None):
+def acquire(state_home, run_id, engine, pid=None, resume_evidence=None):
     args = ["lock", "acquire", "--run", run_id, "--engine", engine,
             "--pid", str(pid if pid else os.getpid())]
+    if resume_evidence is not None:
+        args += ["--native-goal-evidence", resume_evidence]
     return state_json(args, state_home)["token"]

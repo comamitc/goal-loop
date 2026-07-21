@@ -100,14 +100,20 @@ Compile and initialize:
 
 ```
 python3 state.py compile-contract --discovery discovery.json \
-    --adapter <claude|codex> --run-id <run-id> --out contract.json
+    --adapter <claude|codex> --run-id <run-id> --out contract.json \
+    --native-goal-evidence '{"native_goal": {"engine": "<claude|codex>", \
+"run_id": "<run-id>", "status": "active", "checked_at": "<now, ISO8601>"}}'
 python3 state.py init --contract contract.json --engine <claude|codex> \
     --native-goal-evidence '{"native_goal": {"engine": "<claude|codex>", \
 "run_id": "<run-id>", "status": "active", "checked_at": "<now, ISO8601>"}}'
 ```
 
-`init` fails closed with exit code 8 if this evidence is missing, stale,
-mismatched, or not `status: "active"` — see Phase 0.
+`compile-contract` fails closed with exit code 8 if `--out` is given without
+this evidence — writing the contract artifact is external mutation, gated
+the same way as `init`. Omitting `--out` (in-memory/stdout-only compile)
+stays read-only and needs no evidence. `init` fails closed with exit code 8
+if this evidence is missing, stale, mismatched, or not `status: "active"` —
+see Phase 0.
 
 The contract is canonical: run id, repo, selector snapshot, dependency-aware
 ordering, adapter, mandatory `execution` block (agent-pipeline mode, both
@@ -125,7 +131,13 @@ For every work session (start or resume):
 1. **Acquire the lock**: `python3 state.py lock acquire --run <run-id>
    --engine <engine>`. If held, inspect `lock status`. Recover ONLY a stale
    lock (`lock recover`); never force-break a live one without explicit
-   operator instruction.
+   operator instruction. **If the run has an item already `in_progress`
+   (e.g. a prior session paused mid-item and released the lock without a
+   transition), `acquire` additionally requires fresh native-goal evidence
+   via `--native-goal-evidence` — same shape and freshness rule as Phase 0 —
+   and fails closed with exit code 8 without it.** This is the resume
+   choke point: no transition happens on a plain pause/resume, so the lock
+   acquire itself re-validates the bootstrap before work continues.
 2. **Reconcile before every item and every resume**: collect live truth —
    issue states, branches, PRs, check results, base SHA, roadmap state — into
    a truth JSON and run `state.py reconcile`. Resolve mismatches in favor of

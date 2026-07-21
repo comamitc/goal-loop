@@ -515,6 +515,12 @@ def cmd_compile_contract(args):
     discovery = load_json(args.discovery)
     contract = compile_contract(discovery, args.adapter, args.run_id)
     if args.out:
+        # Writing the contract artifact is external mutation gated on the
+        # same Phase 0 native-goal bootstrap as 'init' and 'transition'; an
+        # in-memory/stdout-only compile (no --out) stays evidence-free.
+        validate_native_goal_evidence(
+            json.loads(args.native_goal_evidence) if args.native_goal_evidence else None,
+            args.run_id, engine=args.adapter)
         atomic_write_json(args.out, contract)
     print(json.dumps(contract, sort_keys=True, indent=2))
 
@@ -555,6 +561,23 @@ def cmd_lock(args):
     rdir = run_dir(args.run)
     lp = lock_path(rdir)
     if args.lock_cmd == "acquire":
+        # A paused-but-in_progress item releases the lock without any state
+        # transition; the next acquire is the only choke point on the resume
+        # path, so it must re-validate native-goal evidence just like entry
+        # into in_progress does. Validated (and persisted to the ledger)
+        # BEFORE the lock file is created, so a rejected resume never leaves
+        # a lock behind for a caller who can't proceed.
+        ledger_path = rdir / "ledger.json"
+        resume_check = None
+        if ledger_path.exists():
+            ledger = load_json(ledger_path)
+            in_progress = [i for i, it in ledger["items"].items()
+                          if it["state"] == "in_progress"]
+            if in_progress:
+                evidence = (json.loads(args.native_goal_evidence)
+                           if args.native_goal_evidence else None)
+                resume_check = validate_native_goal_evidence(
+                    evidence, args.run, args.engine)
         # The CLI process exits immediately, so its own pid would always look
         # dead. Default to the parent (the engine session) unless overridden.
         pid = args.pid if args.pid else os.getppid()
@@ -575,6 +598,10 @@ def cmd_lock(args):
             os.fsync(fd)
         finally:
             os.close(fd)
+        if resume_check:
+            ledger["last_native_goal_check"] = resume_check
+            atomic_write_json(ledger_path, ledger)
+            emit_event(rdir, "native_goal_resume_check", resume_check)
         emit_event(rdir, "lock_acquired", {"engine": args.engine, "pid": payload["pid"]})
         print(json.dumps(payload))
     elif args.lock_cmd == "release":
@@ -737,6 +764,10 @@ def build_parser():
     c.add_argument("--adapter", required=True, choices=["claude", "codex"])
     c.add_argument("--run-id", required=True)
     c.add_argument("--out")
+    c.add_argument("--native-goal-evidence",
+                   help="JSON native_goal self-attestation; required when "
+                        "--out is given (writing the contract artifact is "
+                        "gated on the Phase 0 bootstrap, same as 'init')")
     c.set_defaults(fn=cmd_compile_contract)
 
     c = sub.add_parser("init", help="initialize a run from a compiled contract")
@@ -755,6 +786,10 @@ def build_parser():
     c.add_argument("--pid", type=int, help="engine session pid (default: parent pid)")
     c.add_argument("--token")
     c.add_argument("--force", action="store_true")
+    c.add_argument("--native-goal-evidence",
+                   help="JSON native_goal self-attestation; required on "
+                        "'acquire' if the run has an item already "
+                        "in_progress (resume path)")
     c.set_defaults(fn=cmd_lock)
 
     c = sub.add_parser("transition", help="move an item through the state machine")

@@ -56,10 +56,15 @@ follow it exactly. The short version:
    If the pipeline skill is missing or doctor fails, do not start any item —
    report the failure and stop. There is no non-pipeline fallback.
 3. **Compile + init** the canonical contract with
-   `python3 <skill-dir>/state.py compile-contract --adapter claude ...`
-   then `init`. For an existing run, skip to resume.
-4. **Execute**: acquire the exclusive lock as engine `claude`, reconcile
-   against live repo/remote truth before every item and every resume, then
+   `python3 <skill-dir>/state.py compile-contract --adapter claude ...
+   --native-goal-evidence ...` (required whenever `--out` writes the
+   contract artifact) then `init`. For an existing run, skip to resume.
+4. **Execute**: acquire the exclusive lock as engine `claude` — if the run
+   has an item already `in_progress` (e.g. resuming a paused session with no
+   intervening transition), `lock acquire` also requires fresh native-goal
+   evidence via `--native-goal-evidence` and fails closed (exit 8) without
+   it — reconcile against live repo/remote truth before every item and
+   every resume, then
    hand each item to the pipeline with `/pipeline <N>` — it owns planning
    through `pipeline:ready-to-deploy` in its own worktree. One item at a
    time. `state.py` refuses `in_progress` without preflight evidence

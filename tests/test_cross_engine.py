@@ -4,8 +4,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from helpers import (FIXTURE, IN_PROGRESS_EV, PREFLIGHT_EV, make_run, state,
-                     state_json, acquire)
+from helpers import (FIXTURE, IN_PROGRESS_EV, PREFLIGHT_EV, make_run,
+                     native_goal_evidence, state, state_json, acquire)
 
 
 class TestGoldenParity(unittest.TestCase):
@@ -16,7 +16,8 @@ class TestGoldenParity(unittest.TestCase):
                 path = Path(tmp) / f"{adapter}.json"
                 proc = state(["compile-contract", "--discovery", str(FIXTURE),
                               "--adapter", adapter, "--run-id", "golden",
-                              "--out", str(path)], tmp)
+                              "--out", str(path), "--native-goal-evidence",
+                              native_goal_evidence(adapter, "golden")], tmp)
                 self.assertEqual(proc.returncode, 0, proc.stderr)
                 out[adapter] = json.loads(path.read_text())
             a, b = out["claude"], out["codex"]
@@ -42,8 +43,12 @@ class TestCrossEngineResume(unittest.TestCase):
                         "--evidence", IN_PROGRESS_EV(first, run_id)], home)
             state_json(["lock", "release", "--run", run_id, "--token", t1],
                        home)
-            # engine 2 resumes purely from disk: status, reconcile, advance
-            t2 = acquire(home, run_id, second)
+            # engine 2 resumes purely from disk: status, reconcile, advance.
+            # The item is still in_progress (paused mid-work, not blocked),
+            # so re-acquiring the lock itself requires fresh native-goal
+            # evidence -- there was no transition to re-check it.
+            t2 = acquire(home, run_id, second,
+                        resume_evidence=native_goal_evidence(second, run_id))
             status = state_json(["status", "--run", run_id], home)
             self.assertEqual(status["items"]["issue-101"], "in_progress")
             truth = home / "truth.json"

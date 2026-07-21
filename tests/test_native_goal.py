@@ -17,7 +17,8 @@ def compile_contract(home, run_id="r1", adapter="claude"):
     contract_path = Path(home) / "contract.json"
     state_json(["compile-contract", "--discovery", str(disc),
                 "--adapter", adapter, "--run-id", run_id,
-                "--out", str(contract_path)], home)
+                "--out", str(contract_path), "--native-goal-evidence",
+                native_goal_evidence(adapter, run_id)], home)
     return contract_path
 
 
@@ -180,6 +181,96 @@ class TestClearedPausedNeverMutates(unittest.TestCase):
             self.assertEqual(proc.returncode, 8, proc.stderr)
         after = json.loads((self.rdir / "ledger.json").read_text())["items"]
         self.assertEqual(before, after)
+
+
+class TestCompileContractGate(unittest.TestCase):
+    """Writing a contract artifact (--out) is external mutation, gated on
+    the same Phase 0 bootstrap as 'init' and 'transition'. An in-memory
+    compile with no --out stays read-only and evidence-free."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.home = Path(self.tmp.name)
+        self.addCleanup(self.tmp.cleanup)
+
+    def test_out_without_evidence_rejected_and_no_file_written(self):
+        contract_path = self.home / "contract.json"
+        proc = state(["compile-contract", "--discovery", str(FIXTURE),
+                     "--adapter", "claude", "--run-id", "gate1",
+                     "--out", str(contract_path)], self.home)
+        self.assertEqual(proc.returncode, 8, proc.stderr)
+        self.assertFalse(contract_path.exists())
+
+    def test_out_with_stale_evidence_rejected(self):
+        contract_path = self.home / "contract.json"
+        ev = native_goal_evidence("claude", "gate1", stale=True)
+        proc = state(["compile-contract", "--discovery", str(FIXTURE),
+                     "--adapter", "claude", "--run-id", "gate1",
+                     "--out", str(contract_path),
+                     "--native-goal-evidence", ev], self.home)
+        self.assertEqual(proc.returncode, 8, proc.stderr)
+        self.assertFalse(contract_path.exists())
+
+    def test_out_with_fresh_evidence_succeeds(self):
+        contract_path = self.home / "contract.json"
+        ev = native_goal_evidence("claude", "gate1")
+        proc = state(["compile-contract", "--discovery", str(FIXTURE),
+                     "--adapter", "claude", "--run-id", "gate1",
+                     "--out", str(contract_path),
+                     "--native-goal-evidence", ev], self.home)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertTrue(contract_path.exists())
+
+    def test_no_out_needs_no_evidence(self):
+        proc = state(["compile-contract", "--discovery", str(FIXTURE),
+                     "--adapter", "claude", "--run-id", "gate1"], self.home)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+
+class TestResumeAcquireGate(unittest.TestCase):
+    """A pause releases the lock while the item stays in_progress -- no
+    transition happens on that path. The next 'lock acquire' is the only
+    choke point before work resumes, so it must re-validate fresh
+    native-goal evidence whenever an item is already in_progress."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.home = Path(self.tmp.name)
+        self.addCleanup(self.tmp.cleanup)
+        self.run_id = make_run(self.home)
+        self.rdir = self.home / "runs" / self.run_id
+        t1 = acquire(self.home, self.run_id, "claude")
+        state_json(["transition", "--run", self.run_id, "--item", "issue-101",
+                    "--to", "in_progress", "--token", t1,
+                    "--evidence", IN_PROGRESS_EV("claude", self.run_id)],
+                   self.home)
+        state_json(["lock", "release", "--run", self.run_id, "--token", t1],
+                   self.home)
+
+    def test_resume_without_evidence_rejected_no_lock_left_behind(self):
+        proc = state(["lock", "acquire", "--run", self.run_id,
+                     "--engine", "claude"], self.home)
+        self.assertEqual(proc.returncode, 8, proc.stderr)
+        self.assertFalse((self.rdir / "lock.json").exists())
+
+    def test_resume_with_stale_evidence_rejected(self):
+        ev = native_goal_evidence("claude", self.run_id, stale=True)
+        proc = state(["lock", "acquire", "--run", self.run_id,
+                     "--engine", "claude", "--native-goal-evidence", ev],
+                    self.home)
+        self.assertEqual(proc.returncode, 8, proc.stderr)
+        self.assertFalse((self.rdir / "lock.json").exists())
+
+    def test_resume_with_fresh_evidence_succeeds_and_updates_ledger(self):
+        ev = native_goal_evidence("claude", self.run_id)
+        proc = state(["lock", "acquire", "--run", self.run_id,
+                     "--engine", "claude", "--native-goal-evidence", ev],
+                    self.home)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        ledger = json.loads((self.rdir / "ledger.json").read_text())
+        self.assertEqual(ledger["last_native_goal_check"]["status"], "active")
+        events = (self.rdir / "events.jsonl").read_text()
+        self.assertIn("native_goal_resume_check", events)
 
 
 class TestReadOnlyBoundary(unittest.TestCase):

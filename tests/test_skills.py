@@ -111,19 +111,43 @@ class TestNativeGoalBootstrap(unittest.TestCase):
 
     README = ROOT / "README.md"
 
+    @staticmethod
+    def bootstrap_sequence(entry_command):
+        # Requires the mandated plain-text operator sequence: start native
+        # `/goal`, then invoke the engine-specific goal-loop entrypoint.
+        return re.compile(
+            r"(?is)start(?:ing)?\s+native\s+`/goal`,?\s+then\s*\n?\s*"
+            r"invok(?:e|ing)\s*\n?\s*`" + re.escape(entry_command) + "`")
+
     def test_claude_projection_documents_native_goal_bootstrap(self):
         text = CLAUDE_SKILL.read_text()
-        self.assertRegex(text, r"(?is)/goal(?!-loop)\b.*?/goal-loop")
+        self.assertRegex(text, self.bootstrap_sequence("/goal-loop"))
 
     def test_codex_projection_documents_native_goal_bootstrap(self):
         text = CODEX_SKILL.read_text()
-        self.assertRegex(text, r"(?is)/goal(?!-loop)\b.*?\$goal-loop")
+        self.assertRegex(text, self.bootstrap_sequence("$goal-loop"))
+
+    def test_readme_and_loop_document_both_entrypoints(self):
+        # README and LOOP.md are engine-neutral: each must document the
+        # bootstrap sequence with both engine entrypoints named.
+        pattern = re.compile(
+            r"(?is)start(?:ing)?\s+native\s+`/goal`,?\s+then\s*\n?\s*"
+            r"invok(?:e|ing)\s*\n?\s*`/goal-loop`\s*\([^)]*\)\s+or\s+"
+            r"`\$goal-loop`")
+        for path in (self.README, LOOP):
+            self.assertRegex(path.read_text(), pattern, f"{path}")
 
     def test_no_markdown_link_for_goal_commands(self):
-        pattern = re.compile(
+        markdown_pattern = re.compile(
             r"\[[^\]]*(?:/goal-loop|\$goal-loop|/goal)[^\]]*\]\(")
+        html_pattern = re.compile(
+            r"(?is)<a\b[^>]*(?:href=[\"'][^\"']*"
+            r"(?:/goal-loop|\$goal-loop|/goal)[^\"']*[\"']"
+            r"|>[^<]*(?:/goal-loop|\$goal-loop|/goal\b)[^<]*</a>)")
         for path in (CLAUDE_SKILL, CODEX_SKILL, self.README, LOOP):
-            self.assertNotRegex(path.read_text(), pattern, f"{path}")
+            text = path.read_text()
+            self.assertNotRegex(text, markdown_pattern, f"{path}")
+            self.assertNotRegex(text, html_pattern, f"{path}")
 
     def test_no_recursive_invocation_claim(self):
         pattern = re.compile(

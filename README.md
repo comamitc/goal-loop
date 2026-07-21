@@ -27,6 +27,21 @@ the pipeline skill or its preflight is unavailable, the run fails closed.
 - `install.py` — idempotent installer/uninstaller with an ownership
   manifest and sha256 checksums.
 
+## Native `/goal` bootstrap
+
+For durable autonomous use, the operator starts the host's native `/goal`
+first, then invokes the skill: Claude Code — start native `/goal`, then
+invoke `/goal-loop`; Codex CLI — start native `/goal`, then invoke
+`$goal-loop`. For a single bounded task, skip both and stay outside native
+Goal mode and outside goal-loop.
+
+Native `/goal` is an operator-owned prerequisite, not a capability this
+skill validates or controls: goal-loop does not detect, attest to, or
+record native-goal status, and never claims to have invoked `/goal` itself.
+goal-loop's own completion claim is limited to its durable done definition
+plus a final reconciliation pass; native `/goal` completion is a separate,
+host-owned action the operator takes afterward.
+
 ## Install
 
 ```sh

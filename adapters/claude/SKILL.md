@@ -21,6 +21,20 @@ executor for every item. All durable state lives on disk under
 `state.py` — never edit state files directly, and never rely on chat history
 for run state.
 
+## Native `/goal` bootstrap
+
+For durable autonomous goal-loop use: start native `/goal` first, then
+invoke `/goal-loop`. For a single bounded task, skip both — stay outside
+native Goal mode and outside goal-loop, and use a normal prompt instead.
+
+Native `/goal` is an operator-owned prerequisite, not a capability this
+skill validates or controls. goal-loop does not detect, attest to, or
+record native-goal status, and it never claims to have invoked `/goal` or
+`/goal-loop` itself after execution begins — the operator starts both by
+hand. goal-loop can only assert its own durable done definition (below)
+plus a final reconciliation pass; native `/goal` completion is a separate,
+host-owned action the operator takes afterward.
+
 Read `references/LOOP.md` in this skill directory FULLY before acting, then
 follow it exactly. The short version:
 

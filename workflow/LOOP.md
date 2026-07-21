@@ -18,6 +18,28 @@ milestone, a roadmap slice, a label selection, or an explicit work list —
 anything expected to outlive one chat session. Do NOT use it for a single
 bounded task; do that directly.
 
+## Native goal bootstrap
+
+One engine-neutral objective, contract, ledger, and completion definition
+covers both projections; no engine-specific native-goal state is
+introduced. For durable autonomous use, the operator starts the host's
+native `/goal` first, then invokes the goal-loop skill:
+
+- Claude Code: start native `/goal`, then invoke `/goal-loop`.
+- Codex CLI: start native `/goal`, then invoke `$goal-loop`.
+
+For a single bounded task, skip both — stay outside native Goal mode and
+outside goal-loop, and use a normal prompt.
+
+Native `/goal` is an operator-owned prerequisite for durable autonomous use,
+not a capability goal-loop validates or controls. goal-loop does not
+detect, attest to, or record native-goal status, and never claims to have
+invoked `/goal`, `/goal-loop`, or `$goal-loop` itself after execution
+begins. goal-loop's own completion claim is limited to its durable done
+definition and a final reconciliation pass (Phase 3 and the Report section
+below); native `/goal` completion is a separate, host-owned action the
+operator takes afterward.
+
 ## Phase 1 — Discover
 
 Gather live truth before writing anything:

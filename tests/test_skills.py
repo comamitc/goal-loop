@@ -142,14 +142,19 @@ class TestNativeGoalBootstrap(unittest.TestCase):
             r"\[[^\]]*(?:/goal-loop|\$goal-loop|/goal)[^\]]*\]\(")
         markdown_dest_pattern = re.compile(
             r"\[[^\]]*\]\([^)]*(?:/goal-loop|\$goal-loop|/goal)[^)]*\)")
+        markdown_reference_def_pattern = re.compile(
+            r"(?im)^[ \t]*\[[^\]]+\]:\s*\S*"
+            r"(?:/goal-loop|\$goal-loop|/goal)\S*")
         html_pattern = re.compile(
-            r"(?is)<a\b[^>]*(?:href=[\"'][^\"']*"
-            r"(?:/goal-loop|\$goal-loop|/goal)[^\"']*[\"']"
+            r"(?is)<a\b[^>]*(?:href=[\"']?[^\"'\s>]*"
+            r"(?:/goal-loop|\$goal-loop|/goal)[^\"'\s>]*[\"']?"
             r"|>[^<]*(?:/goal-loop|\$goal-loop|/goal\b)[^<]*</a>)")
         for path in (CLAUDE_SKILL, CODEX_SKILL, self.README, LOOP):
             text = path.read_text()
             self.assertNotRegex(text, markdown_label_pattern, f"{path}")
             self.assertNotRegex(text, markdown_dest_pattern, f"{path}")
+            self.assertNotRegex(
+                text, markdown_reference_def_pattern, f"{path}")
             self.assertNotRegex(text, html_pattern, f"{path}")
 
     def test_markdown_link_patterns_catch_generic_label_command_links(self):
@@ -172,6 +177,49 @@ class TestNativeGoalBootstrap(unittest.TestCase):
         ]
         for fixture in passing_fixtures:
             self.assertNotRegex(fixture, markdown_dest_pattern, fixture)
+
+    def test_markdown_link_patterns_catch_reference_style_and_unquoted_html(
+            self):
+        # Regression fixtures: reference-style Markdown link definitions
+        # (`[start][run]` / `[run]: /goal-loop`) and unquoted HTML href
+        # attributes (`<a href=/goal-loop>`) are both clickable command
+        # links and must be rejected even though neither matches the
+        # inline-Markdown or quoted-HTML patterns.
+        markdown_reference_def_pattern = re.compile(
+            r"(?im)^[ \t]*\[[^\]]+\]:\s*\S*"
+            r"(?:/goal-loop|\$goal-loop|/goal)\S*")
+        html_pattern = re.compile(
+            r"(?is)<a\b[^>]*(?:href=[\"']?[^\"'\s>]*"
+            r"(?:/goal-loop|\$goal-loop|/goal)[^\"'\s>]*[\"']?"
+            r"|>[^<]*(?:/goal-loop|\$goal-loop|/goal\b)[^<]*</a>)")
+
+        failing_reference_fixtures = [
+            "[start][run]\n\n[run]: /goal-loop",
+            "[continue][ref]\n\n[ref]: $goal-loop",
+        ]
+        for fixture in failing_reference_fixtures:
+            self.assertRegex(
+                fixture, markdown_reference_def_pattern, fixture)
+
+        passing_reference_fixtures = [
+            "[start][run]\n\n[run]: /other-command",
+        ]
+        for fixture in passing_reference_fixtures:
+            self.assertNotRegex(
+                fixture, markdown_reference_def_pattern, fixture)
+
+        failing_html_fixtures = [
+            "<a href=/goal-loop>start</a>",
+            "<a href=$goal-loop>start</a>",
+        ]
+        for fixture in failing_html_fixtures:
+            self.assertRegex(fixture, html_pattern, fixture)
+
+        passing_html_fixtures = [
+            "<a href=/other-command>start</a>",
+        ]
+        for fixture in passing_html_fixtures:
+            self.assertNotRegex(fixture, html_pattern, fixture)
 
     def test_no_recursive_invocation_claim(self):
         pattern = re.compile(
